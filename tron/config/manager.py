@@ -1,5 +1,6 @@
 import logging
 import os
+import subprocess
 import yaml
 
 from tron.config import schema, config_parse, ConfigError
@@ -113,3 +114,33 @@ def create_new_config(path, master_content, master_filename='master'):
     write_raw(master_filename, master_content)
     manager.manifest.create()
     manager.manifest.add(schema.MASTER_NAMESPACE, master_filename)
+
+
+class PostConfigHooks(object):
+    """Commands to run after the configuration has been updated. Each command is
+    run independently of the others, so a single failure does not prevent
+    other commands from running.
+
+    Commands can contain the following context variables.
+        config_name - the name of the config which was updated
+        message - a message provided on update
+    """
+
+    DEFAULT_MESSAGE = "Tron configuration %(config_name)s updated."
+
+    def __init__(self, hooks):
+        self.hooks = hooks
+
+    @classmethod
+    def from_config(cls, hooks_config):
+        pass
+
+    def run(self, config_name, message=DEFAULT_MESSAGE):
+        context = {'message': message, 'config_name': config_name}
+        for hook in self.hooks:
+            try:
+                subprocess.call(hook % context)
+                # TODO: capture stderr, return_code
+            except Exception, e:
+                msg = "Failed to run post config hook %s: %s"
+                log.warn(msg % (hook, e))
