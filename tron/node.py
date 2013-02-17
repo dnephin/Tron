@@ -1,3 +1,4 @@
+import functools
 import logging
 import itertools
 import random
@@ -187,11 +188,93 @@ def determine_fudge_factor(count, min_count=4):
 
 
 class RunState(object):
-    def __init__(self, action_run):
-        self.run = action_run
+    def __init__(self, action_command):
+        self.run = action_command
         self.state = RUN_STATE_CONNECTING
         self.deferred = defer.Deferred()
         self.channel = None
+
+    def starting(self):
+        # TODO: State machine
+        assert self.run_states[run.id].state < RUN_STATE_RUNNING
+        self.state = RUN_STATE_STARTING
+
+    def start(self, channel):
+        # TODO: how is channel __str__ ?
+        log.info("Run %s started on %s", self.run.id, self.channel)
+        channel.start_defer = None
+        # TODO: state machine
+        assert self.run_states[run.id].state == RUN_STATE_STARTING
+        self.state = RUN_STATE_RUNNING
+        run.started()
+
+    def complete(self):
+        # TODO: state machine
+        assert self.run_states[run.id].state < RUN_STATE_COMPLETE
+        self.state = RUN_STATE_COMPLETE
+        return self.deferred.callback
+
+
+
+
+class RunCollection(object):
+
+    def __init__(self):
+        self.runs = {}
+
+    def add(self, action_command):
+        if action_command.id in self.run:
+            raise Error("Run %s already running !?!" % action_command.id)
+   
+        self.runs[action_command.id] = RunState(action_command)
+        return self.runs[action_command.id]
+
+    def remove(self, action_command):
+        # TODO: why set to None before deleting it?
+        self.runs[action_command.id].channel = None
+        del self.runs[run.id]
+
+    def get(self, run):
+        return self.runs.get(run.id)
+
+    def __len__(self):
+        return len(self.runs)
+
+    def __iter__(self):
+        return self.runs.iteritems()
+
+
+class NodeConnection(object):
+    connected = True
+
+    def __init__(self, connection, hostname):
+        # TODO: logging only?
+        self.hostname = hostname
+        self.connection = connection
+        self.idle_timer = eventloop.NullCallback
+
+    def idle_timeout(self):
+        log.info("Connection to %s idle for %d secs. Closing.",
+                     self.hostname, IDLE_CONNECTION_TIMEOUT)
+        self.connection.transport.loseConnection()
+
+    def cancel_idle(self):
+        if self.idle_timer.active():
+            self.idle_timer.cancel()
+
+    def start_idle(self):
+        self.idle_timer = eventloop.call_later(IDLE_CONNECTION_TIMEOUT,
+            self.idle_timeout)
+
+
+
+class NullNodeConnection(object):
+    connected = False
+
+    @staticmethod
+    def cancel_idle():
+        pass
+
 
 
 class Node(object):
@@ -212,17 +295,14 @@ class Node(object):
         # SSH Options
         self.conch_options = ssh_options
 
-        # The SSH connection we use to open channels on. If present, means we
-        # are connected.
-        self.connection = None
+        self.connection = NullNodeConnection
 
         # If present, means we are trying to connect
         self.connection_defer = None
 
         # Map of run id to instance of RunState
-        self.run_states = {}
+        self.run_states = RunCollection()
 
-        self.idle_timer = eventloop.NullCallback
         self.disabled = False
         self.pub_key = pub_key
 
@@ -257,7 +337,7 @@ class Node(object):
 
         return cmp(self.hostname, other.hostname)
 
-    # TODO: Test
+    # TODO: combine with run ?
     def submit_command(self, command):
         """Submit an ActionCommand to be run on this node. Optionally provide
         an error callback which will be called on error.
@@ -273,33 +353,19 @@ class Node(object):
         execute a command on this remote machine and return results.
         """
         log.info("Running %s for %s on %s", run.command, run.id, self.hostname)
+        run_state = self.run_states.add(run)
 
-        # When this run completes, for good or bad, we'll inform the caller by
-        # calling 'succeed' or 'fail' on the run Since the definined interface
-        # is on these specific callbacks, we won't bother returning the
-        # deferred here. This allows the caller to not really care about
-        # twisted specific stuff at all, all it needs to know is that one of
-        # those functions will eventually be called back
+        self.connection.cancel_idle()
 
-        if run.id in self.run_states:
-            raise Error("Run %s already running !?!", run.id)
+        self.start_runner(run)
+        return run_state.deferred
 
-        if self.idle_timer.active():
-            self.idle_timer.cancel()
-
-        self.run_states[run.id] = RunState(run)
-
-        # TODO: have this return a runner instead of number
+    def start_runner(self, run):
         fudge_factor = determine_fudge_factor(len(self.run_states))
-        if fudge_factor == 0.0:
-            self._do_run(run)
-        else:
-            log.info("Delaying execution of %s for %.2f secs", run.id, fudge_factor)
-            eventloop.call_later(fudge_factor, self._do_run, run)
-
-        # We return the deferred here, but really we're trying to keep the rest
-        # of the world from getting too involved with twisted.
-        return self.run_states[run.id].deferred
+        if not fudge_factor:
+            return self._do_run(run)
+        log.info("Delaying execution of %s for %.2f secs", run.id, fudge_factor)
+        eventloop.call_later(fudge_factor, self._do_run, run)
 
     def _do_run(self, run):
         """Finish starting to execute a run
@@ -309,25 +375,15 @@ class Node(object):
 
         # Now let's see if we need to start this off by establishing a
         # connection or if we are already connected
-        if self.connection is None:
+        if self.connection.connected:
             self._connect_then_run(run)
         else:
             self._open_channel(run)
 
     def _cleanup(self, run):
-        # TODO: why set to None before deleting it?
-        self.run_states[run.id].channel = None
-        del self.run_states[run.id]
-
+        self.run_state.remove(run)
         if not self.run_states:
-            self.idle_timer = eventloop.call_later(IDLE_CONNECTION_TIMEOUT,
-                                                self._connection_idle_timeout)
-
-    def _connection_idle_timeout(self):
-        if self.connection:
-            log.info("Connection to %s idle for %d secs. Closing.",
-                     self.hostname, IDLE_CONNECTION_TIMEOUT)
-            self.connection.transport.loseConnection()
+            self.connection.start_idle()
 
     def _fail_run(self, run, result):
         """Indicate the run has failed, and cleanup state"""
@@ -375,12 +431,12 @@ class Node(object):
         We should be in a state where we know there are no runs in progress
         because all the SSH channels should have disconnected them.
         """
-        assert self.connection is connection
-        self.connection = None
+        assert self.connection is connection.connection
+        self.connection = NullNodeConnection
 
         log.info("Service to %s stopped", self.hostname)
 
-        for run_id, run in self.run_states.iteritems():
+        for run_id, run in self.run_states:
             if run.state == RUN_STATE_CONNECTING:
                 # Now we can trigger a reconnect and re-start any waiting runs.
                 self._connect_then_run(run)
@@ -453,10 +509,9 @@ class Node(object):
         return connect_defer
 
     def _open_channel(self, run):
-        assert self.connection
-        assert self.run_states[run.id].state < RUN_STATE_RUNNING
-
-        self.run_states[run.id].state = RUN_STATE_STARTING
+        assert self.connection.connected
+        run_state = self.run_state.get(run)
+        run_state.starting()
 
         chan = ssh.ExecChannel(conn=self.connection)
 
@@ -466,7 +521,7 @@ class Node(object):
 
         chan.command = run.command
         chan.start_defer = defer.Deferred()
-        chan.start_defer.addCallback(self._run_started, run)
+        chan.start_defer.addCallback(run_state.start)
         chan.start_defer.addErrback(self._run_start_error, run)
 
         chan.exit_defer = defer.Deferred()
@@ -475,6 +530,7 @@ class Node(object):
 
         twistedutils.defer_timeout(chan.start_defer, RUN_START_TIMEOUT)
 
+        # TODO: set_channel()
         self.run_states[run.id].channel = chan
         self.connection.openChannel(chan)
 
@@ -488,12 +544,11 @@ class Node(object):
             log.warning("Run %s no longer tracked", run.id)
             return
 
-        assert self.run_states[run.id].state < RUN_STATE_COMPLETE
-
-        self.run_states[run.id].state = RUN_STATE_COMPLETE
-        cb = self.run_states[run.id].deferred.callback
+        run_state = self.run_states.get(run)
+        cb = run_state.complete()
         self._cleanup(run)
 
+        # TODO: can this be moved into run_state.complete() ?
         run.exited(channel.exit_status)
         cb(channel.exit_status)
 
@@ -504,15 +559,6 @@ class Node(object):
         """
         log.error("Failure waiting on channel completion: %s", str(result))
         self._fail_run(run, failure.Failure(exc_value=ResultError()))
-
-    def _run_started(self, channel, run):
-        """Our run is actually a running process now, update the state"""
-        log.info("Run %s started for %s", run.id, self.hostname)
-        channel.start_defer = None
-        assert self.run_states[run.id].state == RUN_STATE_STARTING
-        self.run_states[run.id].state = RUN_STATE_RUNNING
-
-        run.started()
 
     def _run_start_error(self, result, run):
         """We failed to even run the command due to communication difficulties
