@@ -126,11 +126,6 @@ class NodeTestCase(TestCase):
         assert_equal(new_node.username, node_config.username)
         assert_equal(new_node.pub_key, public_key)
 
-    def test__cmp__(self):
-        other_node = node.Node('mocalhost', self.ssh_options, username='mser', name='mocal')
-        assert_lt(self.node, 'thename')
-        assert_lt(self.node, other_node)
-
     def test_determine_fudge_factor(self):
         assert_equal(node.determine_fudge_factor(0), 0)
         assert 0 < node.determine_fudge_factor(20) < 20

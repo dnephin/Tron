@@ -227,7 +227,6 @@ class RunCollection(object):
             raise Error("Run %s already running !?!" % action_command.id)
    
         self.runs[action_command.id] = RunState(action_command)
-        return self.runs[action_command.id]
 
     def remove(self, action_command):
         # TODO: why set to None before deleting it?
@@ -245,13 +244,16 @@ class RunCollection(object):
 
 
 class NodeConnection(object):
-    connected = True
 
     def __init__(self, connection, hostname):
         # TODO: logging only?
         self.hostname = hostname
         self.connection = connection
         self.idle_timer = eventloop.NullCallback
+        # TODO: can these be properties
+        self.is_connecting = False
+        self.is_connected = False
+        self.connection_defer = None
 
     def idle_timeout(self):
         log.info("Connection to %s idle for %d secs. Closing.",
@@ -263,213 +265,36 @@ class NodeConnection(object):
             self.idle_timer.cancel()
 
     def start_idle(self):
-        self.idle_timer = eventloop.call_later(IDLE_CONNECTION_TIMEOUT,
-            self.idle_timeout)
+        self.idle_timer = eventloop.call_later(IDLE_CONNECTION_TIMEOUT, self.idle_timeout)
 
 
 
 class NullNodeConnection(object):
-    connected = False
+    is_connected = False
+    is_connecting = False
 
     @staticmethod
     def cancel_idle():
         pass
 
 
-
-class Node(object):
-    """A node is tron's interface to communicating with an actual machine.
+class ConnectionFactory(object):
+    """Build a connection.  This is complicated because we have to deal with a 
+    few different steps before our connection is really available for us:
+        1. Transport is created (our client creator does this)
+        2. Our transport is secure, and we can create our connection
+        3. The connection service is started, so we can use it
     """
 
-    def __init__(self, hostname, ssh_options, username=None, name=None, pub_key=None):
-
-        # Host we are to connect to
+    def __init__(self, username, hostname, conch_options, public_key):
         self.hostname = hostname
-
-        # Username to connect to the remote machine under
         self.username = username
+        self.conch_options = conch_options
+        self.public_key = public_key
 
-        # Identifier for UI
-        self.name = name or hostname
-
-        # SSH Options
-        self.conch_options = ssh_options
-
-        self.connection = NullNodeConnection
-
-        # If present, means we are trying to connect
-        self.connection_defer = None
-
-        # Map of run id to instance of RunState
-        self.run_states = RunCollection()
-
-        self.disabled = False
-        self.pub_key = pub_key
-
-    @classmethod
-    def from_config(cls, node_config, ssh_options, pub_key):
-        return cls(
-            node_config.hostname,
-            ssh_options,
-            username=node_config.username,
-            name=node_config.name,
-            pub_key=pub_key)
-
-    def get_name(self):
-        return self.name
-
-    def disable(self):
-        """Required for MappingCollection.Item interface."""
-        self.disabled = True
-
-    # TODO: wrap conch_options for equality
-    def __eq__(self, other):
-        if not isinstance(other, self.__class__):
-            return False
-        return (self.hostname == other.hostname and
-                self.name == other.name and
-                self.conch_options == other.conch_options and
-                self.pub_key == other.pub_key)
-
-    def __cmp__(self, other):
-        if not isinstance(other, self.__class__):
-            return -1
-
-        return cmp(self.hostname, other.hostname)
-
-    # TODO: combine with run ?
-    def submit_command(self, command):
-        """Submit an ActionCommand to be run on this node. Optionally provide
-        an error callback which will be called on error.
-        """
-        deferred = self.run(command)
-        deferred.addErrback(command.handle_errback)
-        return deferred
-
-    def run(self, run):
-        """Execute the specified run
-
-        A run consists of a very specific set of interfaces which allow us to
-        execute a command on this remote machine and return results.
-        """
-        log.info("Running %s for %s on %s", run.command, run.id, self.hostname)
-        run_state = self.run_states.add(run)
-
-        self.connection.cancel_idle()
-
-        self.start_runner(run)
-        return run_state.deferred
-
-    def start_runner(self, run):
-        fudge_factor = determine_fudge_factor(len(self.run_states))
-        if not fudge_factor:
-            return self._do_run(run)
-        log.info("Delaying execution of %s for %.2f secs", run.id, fudge_factor)
-        eventloop.call_later(fudge_factor, self._do_run, run)
-
-    def _do_run(self, run):
-        """Finish starting to execute a run
-
-        This step may have been delayed.
-        """
-
-        # Now let's see if we need to start this off by establishing a
-        # connection or if we are already connected
-        if self.connection.connected:
-            self._connect_then_run(run)
-        else:
-            self._open_channel(run)
-
-    def _cleanup(self, run):
-        self.run_state.remove(run)
-        if not self.run_states:
-            self.connection.start_idle()
-
-    def _fail_run(self, run, result):
-        """Indicate the run has failed, and cleanup state"""
-        log.debug("Run %s has failed", run.id)
-        if run.id not in self.run_states:
-            log.warning("Run %s no longer tracked (_fail_run)", run.id)
-            return
-
-        # Add a dummy errback handler to prevent Unhandled error messages.
-        # Unless somone is explicitly caring about this defer the error will
-        # have been reported elsewhere.
-        self.run_states[run.id].deferred.addErrback(lambda failure: None)
-
-        cb = self.run_states[run.id].deferred.errback
-
-        self._cleanup(run)
-
-        log.info("Calling fail_run callbacks")
-        run.exited(None)
-        cb(result)
-
-    def _connect_then_run(self, run):
-        # Have we started the connection process ?
-        if self.connection_defer is None:
-            self.connection_defer = self._connect()
-
-        def call_open_channel(arg):
-            self._open_channel(run)
-            return arg
-
-        def connect_fail(result):
-            log.warning("Cannot run %s, Failed to connect to %s",
-                        run.id, self.hostname)
-            self.connection_defer = None
-            self._fail_run(run, failure.Failure(
-                exc_value=ConnectError("Connection to %s failed" %
-                                       self.hostname)))
-
-        self.connection_defer.addCallback(call_open_channel)
-        self.connection_defer.addErrback(connect_fail)
-
-    def _service_stopped(self, connection):
-        """Called when the SSH service has disconnected fully.
-
-        We should be in a state where we know there are no runs in progress
-        because all the SSH channels should have disconnected them.
-        """
-        assert self.connection is connection.connection
-        self.connection = NullNodeConnection
-
-        log.info("Service to %s stopped", self.hostname)
-
-        for run_id, run in self.run_states:
-            if run.state == RUN_STATE_CONNECTING:
-                # Now we can trigger a reconnect and re-start any waiting runs.
-                self._connect_then_run(run)
-            elif run.state == RUN_STATE_RUNNING:
-                self._fail_run(run, None)
-            elif run.state == RUN_STATE_STARTING:
-                if run.channel and run.channel.start_defer is not None:
-
-                    # This means our run IS still waiting to start. There
-                    # should be an outstanding timeout sitting on this guy as
-                    # well. We'll just short circut it.
-                    twistedutils.defer_timeout(run.channel.start_defer, 0)
-                else:
-                    # Doesn't seem like this should ever happen.
-                    log.warning("Run %r caught in starting state, but"
-                                " start_defer is over.", run_id)
-                    self._fail_run(run, None)
-            else:
-                # Service ended. The open channels should know how to handle
-                # this (and cleanup) themselves, so if there should not be any
-                # runs except those waiting to connect
-                raise Error("Run %s in state %s when service stopped",
-                            run_id, run.state)
-
-    def _connect(self):
-        # This is complicated because we have to deal with a few different
-        # steps before our connection is really available for us:
-        #  1. Transport is created (our client creator does this)
-        #  2. Our transport is secure, and we can create our connection
-        #  3. The connection service is started, so we can use it
-
+    def build(self):
         client_creator = protocol.ClientCreator(reactor,
-            ssh.ClientTransport, self.username, self.conch_options, self.pub_key)
+            ssh.ClientTransport, self.username, self.conch_options, self.public_key)
         create_defer = client_creator.connectTCP(self.hostname, 22)
 
         # We're going to create a deferred, returned to the caller, that will
@@ -508,6 +333,89 @@ class Node(object):
 
         return connect_defer
 
+
+
+
+class Node(object):
+    """A node is tron's interface to communicating with an actual machine.
+    """
+
+    def __init__(self, hostname, ssh_options, username=None, name=None, pub_key=None):
+        self.hostname = hostname
+        self.username = username
+        self.name = name or hostname
+        self.conch_options = ssh_options
+        self.connection = NullNodeConnection
+
+        # Map of run id to instance of RunState
+        self.run_states = RunCollection()
+
+        self.disabled = False
+        self.pub_key = pub_key
+
+    @classmethod
+    def from_config(cls, node_config, ssh_options, pub_key):
+        return cls(
+            node_config.hostname,
+            ssh_options,
+            username=node_config.username,
+            name=node_config.name,
+            pub_key=pub_key)
+
+    # TODO: combine with run ?
+    def submit_command(self, command):
+        """Submit an ActionCommand to be run on this node. Optionally provide
+        an error callback which will be called on error.
+        """
+        deferred = self.run(command)
+        deferred.addErrback(command.handle_errback)
+        return deferred
+
+    def run(self, run):
+        """Execute the specified run
+
+        A run consists of a very specific set of interfaces which allow us to
+        execute a command on this remote machine and return results.
+        """
+        log.info("Running %s for %s on %s", run.command, run.id, self.hostname)
+        self.run_states.add(run)
+        self.connection.cancel_idle()
+        self.start_runner(run)
+
+    def start_runner(self, run):
+        fudge_factor = determine_fudge_factor(len(self.run_states))
+        if not fudge_factor:
+            return self._do_run(run)
+        log.info("Delaying execution of %s for %.2f secs", run.id, fudge_factor)
+        eventloop.call_later(fudge_factor, self._do_run, run)
+
+    def _do_run(self, run):
+        """Finish starting to execute a run. This step may have been delayed.  """
+        if not self.connection.connected:
+            self._connect_then_run(run)
+        else:
+            self._open_channel(run)
+
+    def _connect_then_run(self, run):
+        # Have we started the connection process ?
+        if self.connection_defer is None:
+            self.connection_defer = self._connect()
+
+        def call_open_channel(arg):
+            self._open_channel(run)
+            return arg
+
+        def connect_fail(result):
+            log.warning("Cannot run %s, Failed to connect to %s",
+                        run.id, self.hostname)
+            self.connection_defer = None
+            self._fail_run(run, failure.Failure(
+                exc_value=ConnectError("Connection to %s failed" %
+                                       self.hostname)))
+
+        self.connection_defer.addCallback(call_open_channel)
+        self.connection_defer.addErrback(connect_fail)
+
     def _open_channel(self, run):
         assert self.connection.connected
         run_state = self.run_state.get(run)
@@ -533,6 +441,67 @@ class Node(object):
         # TODO: set_channel()
         self.run_states[run.id].channel = chan
         self.connection.openChannel(chan)
+
+    def _cleanup(self, run):
+        self.run_state.remove(run)
+        if not self.run_states:
+            self.connection.start_idle()
+
+    def _fail_run(self, run, result):
+        """Indicate the run has failed, and cleanup state"""
+        log.debug("Run %s has failed", run.id)
+        if run.id not in self.run_states:
+            log.warning("Run %s no longer tracked (_fail_run)", run.id)
+            return
+
+        # Add a dummy errback handler to prevent Unhandled error messages.
+        # Unless somone is explicitly caring about this defer the error will
+        # have been reported elsewhere.
+        self.run_states[run.id].deferred.addErrback(lambda failure: None)
+
+        cb = self.run_states[run.id].deferred.errback
+
+        self._cleanup(run)
+
+        log.info("Calling fail_run callbacks")
+        run.exited(None)
+        cb(result)
+
+    def _service_stopped(self, connection):
+        """Called when the SSH service has disconnected fully.
+
+        We should be in a state where we know there are no runs in progress
+        because all the SSH channels should have disconnected them.
+        """
+        assert self.connection is connection.connection
+        self.connection = NullNodeConnection
+
+        log.info("Service to %s stopped", self.hostname)
+
+        for run_id, run in self.run_states:
+            if run.state == RUN_STATE_CONNECTING:
+                # Now we can trigger a reconnect and re-start any waiting runs.
+                self._connect_then_run(run)
+            elif run.state == RUN_STATE_RUNNING:
+                self._fail_run(run, None)
+            elif run.state == RUN_STATE_STARTING:
+                if run.channel and run.channel.start_defer is not None:
+
+                    # This means our run IS still waiting to start. There
+                    # should be an outstanding timeout sitting on this guy as
+                    # well. We'll just short circut it.
+                    twistedutils.defer_timeout(run.channel.start_defer, 0)
+                else:
+                    # Doesn't seem like this should ever happen.
+                    log.warning("Run %r caught in starting state, but"
+                                " start_defer is over.", run_id)
+                    self._fail_run(run, None)
+            else:
+                # Service ended. The open channels should know how to handle
+                # this (and cleanup) themselves, so if there should not be any
+                # runs except those waiting to connect
+                raise Error("Run %s in state %s when service stopped",
+                            run_id, run.state)
 
     def _channel_complete(self, channel, run):
         """Callback once our channel has completed it's operation
@@ -585,6 +554,22 @@ class Node(object):
 
     def __repr__(self):
         return self.__str__()
+
+    def get_name(self):
+        return self.name
+
+    def disable(self):
+        """Required for MappingCollection.Item interface."""
+        self.disabled = True
+
+    # TODO: wrap conch_options for equality
+    def __eq__(self, other):
+        if not isinstance(other, self.__class__):
+            return False
+        return (self.hostname == other.hostname and
+                self.name == other.name and
+                self.conch_options == other.conch_options and
+                self.pub_key == other.pub_key)
 
 
 def build_ssh_options_from_config(ssh_options_config):

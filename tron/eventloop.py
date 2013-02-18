@@ -47,3 +47,7 @@ class UniqueCallback(object):
     def cancel(self):
         if self.delayed_call.active():
             self.delayed_call.cancel()
+
+
+def defer_timeout(deferred, timeout):
+    reactor.callLater(timeout, deferred.cancel)
