@@ -93,27 +93,18 @@ class KnownHostTestCase(TestCase):
 
 class NodeTestCase(TestCase):
 
-    class TestConnection(object):
-        def openChannel(self, chan):
-            self.chan = chan
-
     @setup
     def setup_node(self):
         self.ssh_options = mock.create_autospec(ConchOptions)
-        self.node = node.Node('localhost', self.ssh_options, username='theuser', name='thename')
+        self.node = node.Node('localhost', self.ssh_options,
+                username='theuser', name='thename')
 
     def test_output_logging(self):
-        nod = node.Node('localhost', mock.Mock(), username='theuser')
         serializer = mock.create_autospec(filehandler.FileHandleManager)
         action_cmd = actionrun.ActionCommand("test", "false", serializer)
-
-        nod.connection = self.TestConnection()
-        nod.run_states = {action_cmd.id: mock.Mock(state=0)}
-        nod.run_states[action_cmd.id].state = node.RUN_STATE_CONNECTING
-
-        nod._open_channel(action_cmd)
-        assert nod.connection.chan is not None
-        nod.connection.chan.dataReceived("test")
+        self.node._open_channel(action_cmd)
+        assert self.node.connection.chan is not None
+        self.node.connection.chan.dataReceived("test")
         serializer.open.return_value.write.assert_called_with('test')
 
     def test_from_config(self):

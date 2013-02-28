@@ -98,10 +98,11 @@ class StateMachine(Observable):
     A State is really just a fancy container for a set of rules for
     transitioning to other states based on the target.
     """
+    initial_state = None
 
-    def __init__(self, initial_state, delegate=None, force_state=None):
+    def __init__(self, initial_state=None, delegate=None, force_state=None):
         super(StateMachine, self).__init__()
-        self.initial_state = initial_state
+        self.initial_state = initial_state or self.initial_state
         self.state = force_state or self.initial_state
         self._state_by_name = None
         self.delegate = delegate

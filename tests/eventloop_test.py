@@ -38,3 +38,12 @@ class UniqueCallTestCase(TestCase):
         with mock.patch('tron.eventloop.call_later', autospec=True) as mock_call_later:
             self.callback.start()
             assert not mock_call_later.call_count
+
+
+class buildDeferTestCase(TestCase):
+
+    def test_build_defer(self):
+        success, error = mock.Mock(), mock.Mock()
+        defer = eventloop.build_defer(success, error)
+        defer.callback('done')
+        success.assert_called_with('done')

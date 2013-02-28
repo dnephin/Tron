@@ -1,6 +1,6 @@
 """Minimal abstraction oer an event loop."""
 
-from twisted.internet import reactor
+from twisted.internet import reactor, defer
 from twisted.internet.base import DelayedCall
 
 
@@ -51,3 +51,8 @@ class UniqueCallback(object):
 
 def defer_timeout(deferred, timeout):
     reactor.callLater(timeout, deferred.cancel)
+
+def build_defer(callback, errback=None):
+    deferred = defer.Deferred()
+    deferred.addCallbacks(callback, errback)
+    return deferred

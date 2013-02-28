@@ -98,22 +98,30 @@ class ClientConnection(connection.SSHConnection):
             return connection.SSHConnection.ssh_CHANNEL_CLOSE(self, packet)
 
 
+def build_channel(connection, action_run, start_defer, exit_defer):
+
+    channel = ExecChannel(connection, action_run.command, start_defer, exit_defer)
+    channel.add_output_callback(action_run.write_stdout)
+    channel.add_error_callback(action_run.write_stderr)
+    channel.add_end_Callback(action_run.done)
+    return channel
+
+
 class ExecChannel(channel.SSHChannel):
 
     name = 'session'
-    exit_defer = None
-    start_defer = None
-
-    command = None
     exit_status = None
     running = False
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, connection, command, start_defer=None, exit_defer=None):
         channel.SSHChannel.__init__(self, *args, **kwargs)
         self.output_callbacks = []
         self.end_callbacks = []
         self.error_callbacks = []
         self.data = []
+        self.command = command
+        self.start_defer = start_defer
+        self.exit_defer = exit_defer
 
     def channelOpen(self, data):
         self.data = []
@@ -138,13 +146,13 @@ class ExecChannel(channel.SSHChannel):
             log.warning("Channel open delayed, giving up and closing")
             self.loseConnection()
 
-    def addOutputCallback(self, output_callback):
+    def add_output_callback(self, output_callback):
         self.output_callbacks.append(output_callback)
 
-    def addErrorCallback(self, error_callback):
+    def add_error_callback(self, error_callback):
         self.error_callbacks.append(error_callback)
 
-    def addEndCallback(self, end_callback):
+    def add_end_callback(self, end_callback):
         self.end_callbacks.append(end_callback)
 
     def openFailed(self, reason):
