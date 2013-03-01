@@ -26,10 +26,10 @@ class ActionCommand(object):
     """
 
     COMPLETE    = ActionState('complete')
-    FAILSTART   = ActionState('failstart')
-    EXITING     = ActionState('exiting', close=COMPLETE)
-    RUNNING     = ActionState('running', exit=EXITING)
-    PENDING     = ActionState('pending', start=RUNNING, exit=FAILSTART)
+    FAILSTART   = ActionState('failstart', close=COMPLETE)
+    EXITING     = ActionState('exiting',   close=COMPLETE)
+    RUNNING     = ActionState('running',   exit=EXITING)
+    PENDING     = ActionState('pending',   start=RUNNING, exit=FAILSTART)
 
     STDOUT      = '.stdout'
     STDERR      = '.stderr'

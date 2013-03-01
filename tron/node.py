@@ -1,3 +1,4 @@
+import functools
 import logging
 import itertools
 import random
@@ -189,6 +190,7 @@ class ChannelState(object):
         self.run        = action_command
         self.state      = ChannelStateMachine()
         self.deferred   = defer.Deferred()
+        self.deferred.addErrback(action_command.handle_errback)
         self.channel    = None
 
     def get_state(self):
@@ -216,7 +218,7 @@ class ChannelState(object):
         self.channel = ssh.build_channel(
             connection, self.run, start_defer, exit_defer)
         connection.openChannel(self.channel)
-        return self.channel
+        return connection
 
     def start_error(self, reason):
         """We failed to even run the command due to communication difficulties
@@ -240,7 +242,9 @@ class ChannelState(object):
     def fail_run(self, result):
         """The run failed."""
         log.warn("%s failed with: %s", self.run, result)
+        self.run.write_stderr(str(result))
         self.run.exited(None)
+        self.run.done()
         self.deferred.errback(result)
 
 
@@ -315,11 +319,12 @@ class NullNodeConnection(object):
     is_connecting = False
 
     @staticmethod
-    def cancel_idle():
-        pass
+    def cancel_idle(): pass
+
+    @staticmethod
+    def start_idle(): pass
 
     get_connection = None
-    start_idle = None
 
 
 class ConnectionFactory(object):
@@ -370,6 +375,12 @@ class ConnectionFactory(object):
         return node_connection
 
 
+def get_runner(pending_count):
+    fudge_factor = determine_fudge_factor(pending_count)
+    if not fudge_factor:
+        return lambda func, *args: func(*args)
+    return functools.partial(eventloop.call_later, fudge_factor)
+
 
 class Node(object):
     """A node is tron's interface to communicating with an actual machine.
@@ -397,42 +408,22 @@ class Node(object):
             name=node_config.name,
             pub_key=pub_key)
 
-    # TODO: combine with run/start_runner ?
     def submit_command(self, action_command):
-        """Submit an ActionCommand to be run on this node. Optionally provide
-        an error callback which will be called on error.
-        """
-        deferred = self.run(action_command)
-
-        def cleanup_callback(result):
-            self._cleanup(action_command)
-            return result
-
-        deferred.addErrback(action_command.handle_errback)
-        deferred.addBoth(cleanup_callback)
-        return deferred
-
-    def run(self, action_command):
-        """Execute the specified run
-
-        A run consists of a very specific set of interfaces which allow us to
-        execute a command on this remote machine and return results.
-        """
+        """Submit an ActionCommand to be run on this node."""
         log.info("Running %s on %s", action_command, self)
         run_channel = self.run_channels.add(action_command)
         self.connection.cancel_idle()
-        self.start_runner(run_channel)
-        return run_channel.get_deferred()
 
-    def start_runner(self, run_channel):
-        fudge_factor = determine_fudge_factor(len(self.run_channels))
-        if not fudge_factor:
-            return self._do_run(run_channel)
-        log.info("Delaying execution of %s for %.2f secs", run_channel, fudge_factor)
-        eventloop.call_later(fudge_factor, self._do_run, run_channel)
+        def cleanup_callback(result):
+            self._cleanup(action_command)
+
+        deferred = run_channel.get_deferred()
+        deferred.addBoth(cleanup_callback)
+        get_runner(len(self.run_channels))(self._do_run, run_channel)
+        return deferred
 
     def _do_run(self, run_channel):
-        """Finish starting to execute a run. This step may have been delayed.  """
+        """Finish starting to execute a run. This step may have been delayed."""
         if not self.connection.is_connected:
             self._connect_then_run(run_channel)
         else:
@@ -449,6 +440,7 @@ class Node(object):
             self.connection = NullNodeConnection
             # TODO: error ConnectError("Connection to %s failed" % self.hostname) ?
             run_channel.fail_run(result)
+            return result
 
         def add_service_stopped(connection):
             connection.service_stop_defer.addCallback(self._service_stopped)

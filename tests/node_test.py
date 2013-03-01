@@ -6,7 +6,7 @@ from testify.test_case import teardown
 
 from twisted.conch.client.options import ConchOptions
 from tests.testingutils import autospec_method
-from tron import node, actioncommand, ssh
+from tron import node, actioncommand, ssh, eventloop
 
 
 def create_mock_node(name=None):
@@ -142,14 +142,12 @@ class NodeTestCase(TestCase):
         self.node.connection.cancel_idle.assert_called_with()
         self.node._do_run.assert_called_with(run_channel)
 
-    @mock.patch('tron.node.eventloop', autospec=True)
     @mock.patch('tron.node.determine_fudge_factor', autospec=True)
-    def test_start_runner_delayed(self, mock_fudge, mock_eventloop):
+    def test_get_runner_delayed(self, mock_fudge):
         mock_fudge.return_value = 3.0
-        run_channel = mock.create_autospec(node.ChannelState)
-        self.node.start_runner(run_channel)
-        mock_eventloop.call_later.assert_called_with(mock_fudge.return_value,
-            self.node._do_run, run_channel)
+        runner = node.get_runner(5)
+        assert_equal(runner.func, eventloop.call_later)
+        assert_equal(runner.args, (mock_fudge.return_value,))
 
     def test_connect_then_run(self):
         run_channel = mock.create_autospec(node.ChannelState)

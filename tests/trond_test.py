@@ -283,3 +283,5 @@ class TrondTestCase(sandbox.SandboxTestCase):
         def wait_on_service_stop():
             return client.service(service_url)['state'] == 'DISABLED'
         sandbox.wait_on_sandbox(wait_on_service_stop)
+
+    # TODO: test can't connect to nodes

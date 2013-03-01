@@ -107,13 +107,13 @@ class ClientConnection(connection.SSHConnection):
         return "%s(transport=%s)" % (self.__class__.__name__, transport)
 
 
-def build_channel(connection, action_run, start_defer, exit_defer):
+def build_channel(connection, action_command, start_defer, exit_defer):
 
-    channel = ExecChannel(connection, action_run.get_command(),
+    channel = ExecChannel(connection, action_command.get_command(),
         start_defer, exit_defer)
-    channel.add_output_callback(action_run.write_stdout)
-    channel.add_error_callback(action_run.write_stderr)
-    channel.add_end_callback(action_run.done)
+    channel.add_output_callback(action_command.write_stdout)
+    channel.add_error_callback(action_command.write_stderr)
+    channel.add_end_callback(action_command.done)
     return channel
 
 
