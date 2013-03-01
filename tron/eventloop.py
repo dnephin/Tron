@@ -10,6 +10,7 @@ class Callback(DelayedCall):
     """
     pass
 
+
 class NullCallback(object):
 
     @staticmethod
@@ -19,6 +20,10 @@ class NullCallback(object):
     @staticmethod
     def active():
         return False
+
+
+def get_reactor():
+    return reactor
 
 
 def call_later(interval, *args, **kwargs):
@@ -49,8 +54,9 @@ class UniqueCallback(object):
             self.delayed_call.cancel()
 
 
-def defer_timeout(deferred, timeout):
-    reactor.callLater(timeout, deferred.cancel)
+def defer_timeout(timeout, deferred):
+    call_later(timeout, deferred.cancel)
+
 
 def build_defer(callback, errback=None):
     deferred = defer.Deferred()

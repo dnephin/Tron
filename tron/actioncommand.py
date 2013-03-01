@@ -100,8 +100,15 @@ class ActionCommand(object):
     def is_complete(self):
         return self.machine.state == self.COMPLETE
 
+    def get_command(self):
+        return self.command
+
+    def get_id(self):
+        return self.id
+
     def __repr__(self):
-        return "ActionCommand %s %s: %s" % (self.id, self.command, self.state)
+        msg = "ActionCommand(%s, %s, state=%s)"
+        return msg % (self.id, self.command, self.state)
 
 
 class StringBuffer(object):

@@ -8,7 +8,8 @@ from twisted.conch.ssh import transport
 from twisted.conch.client import default
 from twisted.python import failure
 
-log = logging.getLogger('tron.ssh')
+
+log = logging.getLogger(__name__)
 
 
 class Error(Exception):
@@ -30,12 +31,11 @@ class NoPasswordAuthClient(default.SSHUserAuthClient):
 
 class ClientTransport(transport.SSHClientTransport):
 
-    connection_defer = None
-
     def __init__(self, username, options, expected_pub_key):
         self.username         = username
         self.options          = options
         self.expected_pub_key = expected_pub_key
+        self.connection_defer = defer.Deferred()
 
     # TODO: test
     def verifyHostKey(self, public_key, fingerprint):
@@ -57,11 +57,16 @@ class ClientTransport(transport.SSHClientTransport):
         auth_service = NoPasswordAuthClient(self.username, self.options, conn)
         self.requestService(auth_service)
 
+    def __str__(self):
+        return "%s(%s)" % (self.__class__.__name__, self.transport)
+
 
 class ClientConnection(connection.SSHConnection):
 
-    service_start_defer = None
-    service_stop_defer = None
+    def __init__(self):
+        connection.SSHConnection.__init__(self)
+        self.service_start_defer = defer.Deferred()
+        self.service_stop_defer  = defer.Deferred()
 
     def serviceStarted(self):
         log.info("Service started")
@@ -97,13 +102,18 @@ class ClientConnection(connection.SSHConnection):
         if local_channel in self.channels:
             return connection.SSHConnection.ssh_CHANNEL_CLOSE(self, packet)
 
+    def __str__(self):
+        transport = self.transport or "No Transport"
+        return "%s(transport=%s)" % (self.__class__.__name__, transport)
+
 
 def build_channel(connection, action_run, start_defer, exit_defer):
 
-    channel = ExecChannel(connection, action_run.command, start_defer, exit_defer)
+    channel = ExecChannel(connection, action_run.get_command(),
+        start_defer, exit_defer)
     channel.add_output_callback(action_run.write_stdout)
     channel.add_error_callback(action_run.write_stderr)
-    channel.add_end_Callback(action_run.done)
+    channel.add_end_callback(action_run.done)
     return channel
 
 
@@ -114,14 +124,14 @@ class ExecChannel(channel.SSHChannel):
     running = False
 
     def __init__(self, connection, command, start_defer=None, exit_defer=None):
-        channel.SSHChannel.__init__(self, *args, **kwargs)
+        channel.SSHChannel.__init__(self, conn=connection)
         self.output_callbacks = []
         self.end_callbacks = []
         self.error_callbacks = []
         self.data = []
         self.command = command
-        self.start_defer = start_defer
-        self.exit_defer = exit_defer
+        self.start_defer = start_defer or defer.Deferred()
+        self.exit_defer  = exit_defer  or defer.Deferred()
 
     def channelOpen(self, data):
         self.data = []
@@ -156,11 +166,10 @@ class ExecChannel(channel.SSHChannel):
         self.end_callbacks.append(end_callback)
 
     def openFailed(self, reason):
-        log.error("Open failed due to %r", reason)
-        if self.start_defer:
-            self.start_defer.errback(self)
+        log.error("Open %s failed: %s", self, reason)
+        self.start_defer.errback(reason)
 
-    def _cbExecSendRequest(self, ignored):
+    def _cbExecSendRequest(self, _):
         self.conn.sendEOF(self)
 
     def request_exit_status(self, data):
@@ -189,7 +198,6 @@ class ExecChannel(channel.SSHChannel):
     def closed(self):
         if (self.exit_status is None and
             self.running and
-            self.exit_defer and
             not self.exit_defer.called):
             log.warning("Channel has been closed without receiving an exit"
                         " status")
@@ -199,3 +207,6 @@ class ExecChannel(channel.SSHChannel):
         for callback in self.end_callbacks:
             callback()
         self.loseConnection()
+
+    def __str__(self):
+        return "%s(conn=%s)" % (self.__class__.__name__, self.conn)
