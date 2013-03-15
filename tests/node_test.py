@@ -1,7 +1,7 @@
 import mock
 from testify import setup, TestCase, assert_equal, run
 from testify import assert_in, assert_raises
-from testify.assertions import assert_not_in
+from testify.assertions import assert_not_in, assert_not_equal
 from testify.test_case import teardown
 
 from twisted.conch.client.options import ConchOptions
@@ -105,9 +105,9 @@ class ChannelStateTestCase(TestCase):
 
     def test_create_channel(self):
         conn = mock.create_autospec(ssh.ClientConnection)
-        channel = self.channel_state.create_channel(conn)
-        assert_equal(channel, self.channel_state.channel)
-        conn.openChannel.assert_called_with(channel)
+        result = self.channel_state.create_channel(conn)
+        assert_equal(result, conn)
+        conn.openChannel.assert_called_with(self.channel_state.channel)
 
 
 class NodeTestCase(TestCase):
@@ -184,6 +184,18 @@ class NodeTestCase(TestCase):
         self.node.run_channels.remove.assert_called_with(action_command)
         assert not self.node.connection.start_idle.mock_calls
 
+    def test__eq__true(self):
+        other_node = node.Node('localhost', self.ssh_options,
+            username='theuser', name='thename')
+        assert_equal(other_node, self.node)
+
+    def test__eq__false(self):
+        other_node = node.Node('localhost', self.ssh_options,
+            username='different', name='thename')
+        assert_not_equal(other_node, self.node)
+        other_node = node.Node('localhost', self.ssh_options,
+            username='theuser', name='thename', pub_key="something")
+        assert_not_equal(other_node, self.node)
 
 
 class NodeIntegrationTestCase(TestCase):

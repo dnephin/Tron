@@ -84,11 +84,11 @@ class NodePoolRepository(object):
         for config in node_pool_configs.itervalues():
             nodes = instance._get_nodes_by_name(config.nodes)
             pool  = NodePool.from_config(config, nodes)
-            instance.pools.add(pool, instance.pools.remove)
+            instance.pools.replace(pool)
 
     def add_node(self, node):
-        self.nodes.add(node, self.nodes.remove)
-        self.pools.add(NodePool.from_node(node), self.pools.remove)
+        self.nodes.replace(node)
+        self.pools.replace(NodePool.from_node(node))
 
     def get_node(self, node_name, default=None):
         return self.nodes.get(node_name, default)
@@ -111,7 +111,7 @@ class NodePool(object):
     """A pool of Node objects."""
     def __init__(self, nodes, name):
         self.nodes      = nodes
-        self.disabled   =  False
+        self.disabled   = False
         self.name       = name or '_'.join(n.get_name() for n in nodes)
         self.iter       = itertools.cycle(self.nodes)
 
@@ -170,7 +170,7 @@ class KnownHosts(KnownHostsFile):
 
 
 def determine_fudge_factor(count, min_count=4):
-    """Return a random number. """
+    """Return a pseudo-random number. """
     fudge_factor = max(0.0, count - min_count)
     return random.random() * float(fudge_factor)
 
@@ -503,9 +503,13 @@ class Node(object):
         if not isinstance(other, self.__class__):
             return False
         return (self.hostname == other.hostname and
+                self.username == other.username and
                 self.name == other.name and
                 self.conch_options == other.conch_options and
                 self.pub_key == other.pub_key)
+
+    def __ne__(self, other):
+        return not self == other
 
 
 def build_ssh_options_from_config(ssh_options_config):
