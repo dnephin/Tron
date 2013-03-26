@@ -129,5 +129,36 @@ class ValidIntervalSchedulerTestCase(TestCase):
             u"6 ຖminute", self.context)
 
 
+class IntervalScheduleParseTestCase(TestCase):
+
+    def test_parse_hour_range(self):
+        assert_equal(
+            schedule_parse.parse_interval_expression('every 1h from 11:00 to 13:00'),
+            schedule_parse.ConfigGrocIntervalScheduler(
+                number=1,
+                units='hours',
+                from_time='11:00',
+                to_time='13:00'))
+
+    def test_parse_no_hour_range(self):
+        assert_equal(
+            schedule_parse.parse_interval_expression('every 1.5 min'),
+            schedule_parse.ConfigGrocIntervalScheduler(
+                number=1.5,
+                units='minutes',
+                from_time=None,
+                to_time=None))
+
+    def test_parse_synchronized(self):
+        assert_equal(
+            schedule_parse.parse_interval_expression('every 1 hour synchronized'),
+            schedule_parse.ConfigGrocIntervalScheduler(
+                number=1,
+                units='hours',
+                from_time='00:00',
+                to_time='23:59'))
+
+
+
 if __name__ == "__main__":
     run()

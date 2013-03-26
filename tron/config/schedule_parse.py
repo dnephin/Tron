@@ -13,6 +13,10 @@ from tron.utils import crontab, dicts
 ConfigGrocScheduler = namedtuple('ConfigGrocScheduler',
     'original ordinals weekdays monthdays months timestr')
 
+ConfigGrocIntervalScheduler = namedtuple('ConfigGrocIntervalScheduler',
+    'number units from_time to_time')
+
+
 ConfigCronScheduler = namedtuple('ConfigCronScheduler',
     'original minutes hours monthdays months weekdays ordinals')
 
@@ -84,13 +88,17 @@ TIME_INTERVAL_SHORTCUTS = {
     'hourly': dict(hours=1),
 }
 
+
+_HOUR_SYNONYMS = ['h', 'hr', 'hrs', 'hour', 'hours']
+_MINUTE_SYNONYMS = ['m', 'min', 'mins', 'minute', 'minutes']
+
 # Translations from possible configuration units to the argument to
 # datetime.timedelta
 TIME_INTERVAL_UNITS = dicts.invert_dict_list({
     'months':   ['mo', 'month', 'months'],
     'days':     ['d', 'day', 'days'],
-    'hours':    ['h', 'hr', 'hrs', 'hour', 'hours'],
-    'minutes':  ['m', 'min', 'mins', 'minute', 'minutes'],
+    'hours':    _HOUR_SYNONYMS,
+    'minutes':  _MINUTE_SYNONYMS,
     'seconds':  ['s', 'sec', 'secs', 'second', 'seconds']
 })
 
@@ -271,3 +279,44 @@ def valid_cron_scheduler(scheduler_args, config_context):
     except ValueError, e:
         msg = "Invalid cron scheduler %s: %s"
         raise ConfigError(msg % (config_context.path, e))
+
+
+INTERVAL_SCHEDULE_EXPR = ''.join([
+    '^every\s+',
+    '(?P<num>\d+(\.\d+)?)\s*',
+    '(?P<units>%s)\s*' % '|'.join(_HOUR_SYNONYMS + _MINUTE_SYNONYMS),
+    '(?P<sync>synchronized)?',
+    '(from\s+(?P<from>\d\d:\d\d)\s+to\s+(?P<to>\d\d:\d\d))?',
+    '$',
+    ])
+INTERVAL_SCHEDULE_RE = re.compile(INTERVAL_SCHEDULE_EXPR)
+
+
+def parse_interval_expression(expression):
+    """Given an expression of the form
+    'every hour|minute [from 00:00 to 00:00]|[synchronized]'
+    return the parsed values in a ConfigIntervalScheduler
+    """
+    match = INTERVAL_SCHEDULE_RE.match(expression.lower())
+    if not match:
+        msg = "%r is not a valid groc interval scheduler expression."
+        raise ScheduleParseError(msg % expression)
+
+    num = float(match.group('num'))
+    units = TIME_INTERVAL_UNITS[match.group('units')]
+    # TODO: error if start_time and sync are both set
+    # TODO: check seconds < 1 day and divisible?
+
+    if match.group('sync'):
+        from_time = '00:00'
+        to_time = '23:59'
+    else:
+        from_time = match.group('from')
+        to_time = match.group('to')
+
+    return ConfigGrocIntervalScheduler(
+        number=num,
+        units=units,
+        from_time=from_time,
+        to_time=to_time,
+    )
