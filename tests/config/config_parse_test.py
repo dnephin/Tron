@@ -198,6 +198,7 @@ services:
                         command='test_command0.1',
                         node=None),
                     enabled=True,
+                    description=None,
                     allow_overlap=False),
                 'MASTER.test_job1': schema.ConfigJob(
                     name='MASTER.test_job1',
@@ -225,6 +226,7 @@ services:
                     run_limit=50,
                     all_nodes=False,
                     cleanup_action=None,
+                    description=None,
                     allow_overlap=True),
                 'MASTER.test_job2': schema.ConfigJob(
                     name='MASTER.test_job2',
@@ -247,6 +249,7 @@ services:
                     run_limit=50,
                     all_nodes=False,
                     cleanup_action=None,
+                    description=None,
                     allow_overlap=False),
                 'MASTER.test_job3': schema.ConfigJob(
                     name='MASTER.test_job3',
@@ -275,6 +278,7 @@ services:
                     run_limit=50,
                     all_nodes=False,
                     cleanup_action=None,
+                    description=None,
                     allow_overlap=False),
                 'MASTER.test_job4': schema.ConfigJob(
                     name='MASTER.test_job4',
@@ -296,6 +300,7 @@ services:
                     all_nodes=True,
                     cleanup_action=None,
                     enabled=False,
+                    description=None,
                     allow_overlap=False)
                 }),
                 services=FrozenDict({
@@ -307,6 +312,7 @@ services:
                         command='service_command0',
                         monitor_interval=20,
                         restart_interval=None,
+                        description=None,
                         count=2)
                 }
             )
@@ -432,6 +438,7 @@ services:
                         command='test_command0.1',
                         node=None),
                     enabled=True,
+                    description=None,
                     allow_overlap=False),
                 'test_job1': schema.ConfigJob(
                     name='test_job1',
@@ -461,6 +468,7 @@ services:
                     run_limit=50,
                     all_nodes=False,
                     cleanup_action=None,
+                    description=None,
                     allow_overlap=True),
                 'test_job2': schema.ConfigJob(
                     name='test_job2',
@@ -484,6 +492,7 @@ services:
                     queueing=True,
                     run_limit=50,
                     all_nodes=False,
+                    description=None,
                     cleanup_action=None,
                     allow_overlap=False),
                 'test_job3': schema.ConfigJob(
@@ -513,6 +522,7 @@ services:
                     run_limit=50,
                     all_nodes=False,
                     cleanup_action=None,
+                    description=None,
                     allow_overlap=False),
                 'test_job4': schema.ConfigJob(
                     name='test_job4',
@@ -534,6 +544,7 @@ services:
                     all_nodes=True,
                     cleanup_action=None,
                     enabled=False,
+                    description=None,
                     allow_overlap=False)
                 }),
                 services=FrozenDict({
@@ -545,6 +556,7 @@ services:
                         command='service_command0',
                         monitor_interval=20,
                         restart_interval=None,
+                        description=None,
                         count=2)
                 }
             )
@@ -905,6 +917,7 @@ class ValidateJobsAndServicesTestCase(TestCase):
                      name='cleanup',
                      node=None),
                 enabled=True,
+                description=None,
                 allow_overlap=False)
             }
 
@@ -916,6 +929,7 @@ class ValidateJobsAndServicesTestCase(TestCase):
                           command='service_command0',
                           monitor_interval=20,
                           restart_interval=None,
+                          description=None,
                           count=2)
             }
 

@@ -93,6 +93,7 @@ ConfigJob = config_object_factory(
         'cleanup_action',       # ConfigAction
         'enabled',              # bool
         'allow_overlap',        # bool
+        'description',          # str
     ])
 
 
@@ -128,4 +129,5 @@ ConfigService = config_object_factory(
     ],[
         'restart_interval',     # float
         'count',                # int
+        'description',          # str
     ])

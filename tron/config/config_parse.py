@@ -382,7 +382,8 @@ class ValidateJob(Validator):
         'cleanup_action':       None,
         'enabled':              True,
         'queueing':             True,
-        'allow_overlap':        False
+        'allow_overlap':        False,
+        'description':          None,
     }
 
     validators = {
@@ -396,6 +397,7 @@ class ValidateJob(Validator):
         'queueing':             valid_bool,
         'enabled':              valid_bool,
         'allow_overlap':        valid_bool,
+        'description':          valid_string,
     }
 
     def cast(self, in_dict, config_context):
@@ -444,7 +446,8 @@ class ValidateService(Validator):
 
     defaults = {
         'count':                1,
-        'restart_interval':     None
+        'restart_interval':     None,
+        'description':          None,
     }
 
     validators = {
@@ -455,6 +458,7 @@ class ValidateService(Validator):
         'count':                valid_int,
         'node':                 valid_node_name,
         'restart_interval':     valid_float,
+        'description':          valid_string,
     }
 
     def cast(self, in_dict, config_context):
