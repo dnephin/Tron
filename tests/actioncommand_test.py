@@ -1,7 +1,10 @@
 import mock
 from testify import TestCase, assert_equal, setup
+from testify.assertions import assert_not_equal
+from tron import actioncommand
 
 from tron.actioncommand import ActionCommand
+from tron.config import schema
 from tron.serialize import filehandler
 
 class ActionCommandTestCase(TestCase):
@@ -94,3 +97,35 @@ class ActionCommandTestCase(TestCase):
         assert self.ac.is_done, self.ac.machine.state
         self.ac.machine.state = self.ac.COMPLETE
         assert self.ac.is_done, self.ac.machine.state
+
+
+class CreateActionCommandFactoryFromConfigTestCase(TestCase):
+
+    def test_create_default_action_command_no_config(self):
+        config = ()
+        factory = actioncommand.create_action_runner_factory_from_config(config)
+        assert_equal(factory, actioncommand.NoActionRunnerFactory)
+
+    def test_create_default_action_command(self):
+        config = schema.ConfigActionRunner('none', None, None)
+        factory = actioncommand.create_action_runner_factory_from_config(config)
+        assert_equal(factory, actioncommand.NoActionRunnerFactory)
+
+    def test_create_action_command_with_simple_runner(self):
+        status_path, exec_path = '/tmp/what', '/remote/bin'
+        config = schema.ConfigActionRunner('simple', status_path, exec_path)
+        factory = actioncommand.create_action_runner_factory_from_config(config)
+        assert_equal(factory.status_path, status_path)
+        assert_equal(factory.exec_path, exec_path)
+
+    def test__eq__true(self):
+        first = actioncommand.SimpleActionRunnerFactory('a', 'b')
+        second = actioncommand.SimpleActionRunnerFactory('a', 'b')
+        assert_equal(first, second)
+
+    def test__eq__false(self):
+        first = actioncommand.SimpleActionRunnerFactory('a', 'b')
+        second = actioncommand.SimpleActionRunnerFactory('a', 'c')
+        assert_not_equal(first, second)
+        assert_not_equal(first, None)
+        assert_not_equal(first, actioncommand.NoActionRunnerFactory)

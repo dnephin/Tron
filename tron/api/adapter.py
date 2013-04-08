@@ -156,6 +156,7 @@ class JobAdapter(ReprAdapter):
         'last_success',
         'url',
         'runs',
+        'max_runtime',
     ]
 
     def __init__(self, job, include_job_runs=False, include_action_runs=False):
@@ -183,6 +184,9 @@ class JobAdapter(ReprAdapter):
         if not self.include_job_runs:
             return
         return adapt_many(JobRunAdapter, self._obj.runs, self.include_action_runs)
+
+    def get_max_runtime(self):
+        return str(self._obj.max_runtime)
 
 
 class ServiceAdapter(ConfigObjReprAdapter):

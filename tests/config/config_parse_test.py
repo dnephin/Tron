@@ -153,6 +153,7 @@ services:
 
     def test_attributes(self):
         expected = schema.TronConfig(
+            action_runner=FrozenDict(),
             output_stream_dir='/tmp',
             command_context=FrozenDict({
                 'python': '/usr/bin/python',
@@ -182,7 +183,7 @@ services:
                     namespace='MASTER',
                     node='node0',
                     schedule=ConfigIntervalScheduler(
-                        timedelta=datetime.timedelta(0, 20)),
+                        timedelta=datetime.timedelta(0, 20), jitter=None),
                     actions=FrozenDict({
                         'action0_0': schema.ConfigAction(
                             name='action0_0',
@@ -199,6 +200,7 @@ services:
                         node=None),
                     enabled=True,
                     description=None,
+                    max_runtime=None,
                     allow_overlap=False),
                 'MASTER.test_job1': schema.ConfigJob(
                     name='MASTER.test_job1',
@@ -209,6 +211,7 @@ services:
                         days=set([1, 3, 5]),
                         hour=0, minute=30, second=0,
                         original="00:30:00 MWF",
+                        jitter=None,
                     ),
                     actions=FrozenDict({
                         'action1_1': schema.ConfigAction(
@@ -227,6 +230,7 @@ services:
                     all_nodes=False,
                     cleanup_action=None,
                     description=None,
+                    max_runtime=None,
                     allow_overlap=True),
                 'MASTER.test_job2': schema.ConfigJob(
                     name='MASTER.test_job2',
@@ -237,6 +241,7 @@ services:
                         days=set(),
                         hour=16, minute=30, second=0,
                         original="16:30:00 ",
+                        jitter=None,
                     ),
                     actions=FrozenDict({
                         'action2_0': schema.ConfigAction(
@@ -250,6 +255,7 @@ services:
                     all_nodes=False,
                     cleanup_action=None,
                     description=None,
+                    max_runtime=None,
                     allow_overlap=False),
                 'MASTER.test_job3': schema.ConfigJob(
                     name='MASTER.test_job3',
@@ -279,6 +285,7 @@ services:
                     all_nodes=False,
                     cleanup_action=None,
                     description=None,
+                    max_runtime=None,
                     allow_overlap=False),
                 'MASTER.test_job4': schema.ConfigJob(
                     name='MASTER.test_job4',
@@ -287,7 +294,8 @@ services:
                     schedule=schedule_parse.ConfigDailyScheduler(
                         days=set(),
                         hour=0, minute=0, second=0,
-                        original='00:00:00 '
+                        original='00:00:00 ',
+                        jitter=None,
                     ),
                     actions=FrozenDict({
                         'action4_0': schema.ConfigAction(
@@ -301,6 +309,7 @@ services:
                     cleanup_action=None,
                     enabled=False,
                     description=None,
+                    max_runtime=None,
                     allow_overlap=False)
                 }),
                 services=FrozenDict({
@@ -335,9 +344,9 @@ services:
         assert_equal(test_config, expected)
         assert_equal(test_config.jobs['MASTER.test_job4'].enabled, False)
 
-
     def test_empty_node_test(self):
         valid_config_from_yaml("""nodes:""")
+
 
 class NamedConfigTestCase(TestCase):
     config = """
@@ -422,7 +431,9 @@ services:
                     namespace='test_namespace',
                     node='node0',
                     schedule=ConfigIntervalScheduler(
-                        timedelta=datetime.timedelta(0, 20)),
+                        timedelta=datetime.timedelta(0, 20),
+                        jitter=None,
+                    ),
                     actions=FrozenDict({
                         'action0_0': schema.ConfigAction(
                             name='action0_0',
@@ -439,6 +450,7 @@ services:
                         node=None),
                     enabled=True,
                     description=None,
+                    max_runtime=None,
                     allow_overlap=False),
                 'test_job1': schema.ConfigJob(
                     name='test_job1',
@@ -451,6 +463,7 @@ services:
                         minute=30,
                         second=0,
                         original="00:30:00 MWF",
+                        jitter=None,
                     ),
                     actions=FrozenDict({
                         'action1_1': schema.ConfigAction(
@@ -469,6 +482,7 @@ services:
                     all_nodes=False,
                     cleanup_action=None,
                     description=None,
+                    max_runtime=None,
                     allow_overlap=True),
                 'test_job2': schema.ConfigJob(
                     name='test_job2',
@@ -481,6 +495,7 @@ services:
                         minute=30,
                         second=0,
                         original="16:30:00 ",
+                        jitter=None,
                     ),
                     actions=FrozenDict({
                         'action2_0': schema.ConfigAction(
@@ -494,6 +509,7 @@ services:
                     all_nodes=False,
                     description=None,
                     cleanup_action=None,
+                    max_runtime=None,
                     allow_overlap=False),
                 'test_job3': schema.ConfigJob(
                     name='test_job3',
@@ -523,6 +539,7 @@ services:
                     all_nodes=False,
                     cleanup_action=None,
                     description=None,
+                    max_runtime=None,
                     allow_overlap=False),
                 'test_job4': schema.ConfigJob(
                     name='test_job4',
@@ -532,6 +549,7 @@ services:
                         days=set(),
                         hour=0, minute=0, second=0,
                         original="00:00:00 ",
+                        jitter=None,
                     ),
                     actions=FrozenDict({
                         'action4_0': schema.ConfigAction(
@@ -545,6 +563,7 @@ services:
                     cleanup_action=None,
                     enabled=False,
                     description=None,
+                    max_runtime=None,
                     allow_overlap=False)
                 }),
                 services=FrozenDict({
@@ -904,7 +923,8 @@ class ValidateJobsAndServicesTestCase(TestCase):
             schema.ConfigJob(name='MASTER.test_job0',
                 namespace='MASTER',
                 node='node0',
-                schedule=ConfigIntervalScheduler(timedelta=datetime.timedelta(0, 20)),
+                schedule=ConfigIntervalScheduler(
+                    timedelta=datetime.timedelta(0, 20), jitter=None),
                 actions=FrozenDict({'action0_0':
                       schema.ConfigAction(name='action0_0',
                                    command='test_command0.0',
@@ -918,7 +938,8 @@ class ValidateJobsAndServicesTestCase(TestCase):
                      node=None),
                 enabled=True,
                 description=None,
-                allow_overlap=False)
+                allow_overlap=False,
+                max_runtime=None)
             }
 
         expected_services = {'MASTER.test_service0':
@@ -938,32 +959,6 @@ class ValidateJobsAndServicesTestCase(TestCase):
         config_parse.validate_jobs_and_services(config, context)
         assert_equal(expected_jobs, config['jobs'])
         assert_equal(expected_services, config['services'])
-
-
-StubConfigObject = schema.config_object_factory(
-    'StubConfigObject',
-    ['req1', 'req2'],
-    ['opt1', 'opt2']
-)
-
-class StubValidator(config_parse.Validator):
-    config_class = StubConfigObject
-
-class ValidatorTestCase(TestCase):
-
-    @setup
-    def setup_validator(self):
-        self.validator = StubValidator()
-
-    def test_validate_with_none(self):
-        expected_msg = "A StubObject is required"
-        exception = assert_raises(ConfigError,
-            self.validator.validate, None, NullConfigContext)
-        assert_in(expected_msg, str(exception))
-
-    def test_validate_optional_with_none(self):
-        self.validator.optional = True
-        assert_equal(self.validator.validate(None, NullConfigContext), None)
 
 
 class ValidCleanupActionNameTestCase(TestCase):
