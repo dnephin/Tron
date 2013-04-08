@@ -9,6 +9,7 @@ from tests.assertions import assert_length, assert_call, assert_mock_calls
 from tests.testingutils import Turtle, autospec_method
 from tests import testingutils
 from tron import node, event, actioncommand
+from tron.config import schema
 from tron.core import job, jobrun
 from tron.core.actionrun import ActionRun
 
@@ -24,10 +25,13 @@ class JobTestCase(TestCase):
         self.action_runner = mock.create_autospec(
             actioncommand.SimpleActionRunnerFactory)
 
+        self.config = mock.create_autospec(schema.ConfigJob)
         patcher = mock.patch('tron.core.job.node.NodePoolRepository')
         with patcher as self.mock_node_repo:
-            self.job = job.Job("jobname", scheduler,
-                    run_collection=run_collection, action_graph=action_graph,
+            self.job = job.Job(self.config,
+                    scheduler,
+                    run_collection=run_collection,
+                    action_graph=action_graph,
                     node_pool=self.nodes)
             autospec_method(self.job.notify)
             autospec_method(self.job.watch)
@@ -64,9 +68,10 @@ class JobTestCase(TestCase):
 
     def test_update_from_job(self):
         action_runner = mock.Mock()
-        other_job = job.Job('otherjob', 'scheduler', action_runner=action_runner)
+        config = mock.create_autospec(schema.ConfigJob)
+        other_job = job.Job(config, 'scheduler', action_runner=action_runner)
         self.job.update_from_job(other_job)
-        assert_equal(self.job.name, 'otherjob')
+        assert_equal(self.job.name, config.name)
         assert_equal(self.job.scheduler, 'scheduler')
         assert_equal(self.job, other_job)
         self.job.event.ok.assert_called_with('reconfigured')
@@ -136,13 +141,14 @@ class JobTestCase(TestCase):
 
     def test_build_new_runs_manual(self):
         run_time = datetime.datetime(2012, 3, 14, 15, 9, 26)
+        get_nodes = self.job.node_pool.get_nodes
+        mock_node = mock.Mock()
+        get_nodes.return_value = [mock_node]
         runs = list(self.job.build_new_runs(run_time, manual=True))
 
-        self.job.node_pool.next.assert_called_with()
-        node = self.job.node_pool.next.return_value
-        assert_length(runs, 1)
+        self.job.node_pool.get_nodes.assert_called_with(self.config.all_nodes)
         assert_call(self.job.runs.build_new_run,
-                0, self.job, run_time, node, manual=True)
+                0, self.job, run_time, mock_node, manual=True)
         self.job.watch.assert_called_with(runs[0])
 
     def test_handler(self):
@@ -153,26 +159,27 @@ class JobTestCase(TestCase):
         self.job.notify.assert_called_with(self.job.NOTIFY_RUN_DONE)
 
     def test__eq__(self):
-        other_job = job.Job("jobname", 'scheduler')
+        other_job = job.Job(self.config, 'scheduler')
         assert not self.job == other_job
         other_job.update_from_job(self.job)
         assert_equal(self.job, other_job)
 
     def test__ne__(self):
-        other_job = job.Job("jobname", 'scheduler')
+        config = mock.create_autospec(schema.ConfigJob)
+        other_job = job.Job(config, 'scheduler')
         assert self.job != other_job
         other_job.update_from_job(self.job)
         assert not self.job != other_job
 
     def test__eq__true(self):
         action_runner = mock.Mock()
-        first = job.Job("jobname", 'scheduler', action_runner=action_runner)
-        second = job.Job("jobname", 'scheduler', action_runner=action_runner)
+        first = job.Job(self.config, 'scheduler', action_runner=action_runner)
+        second = job.Job(self.config, 'scheduler', action_runner=action_runner)
         assert_equal(first, second)
 
     def test__eq__false(self):
-        first = job.Job("jobname", 'scheduler', action_runner=mock.Mock())
-        second = job.Job("jobname", 'scheduler', action_runner=mock.Mock())
+        first = job.Job(self.config, 'scheduler', action_runner=mock.Mock())
+        second = job.Job(self.config, 'scheduler', action_runner=mock.Mock())
         assert_not_equal(first, second)
 
 
@@ -183,8 +190,9 @@ class JobSchedulerTestCase(TestCase):
         self.scheduler = Turtle()
         run_collection = Turtle()
         node_pool = Turtle()
+        self.config = mock.create_autospec(schema.ConfigJob)
         self.job = job.Job(
-                "jobname",
+                self.config,
                 self.scheduler,
                 run_collection=run_collection,
                 node_pool=node_pool,
@@ -299,8 +307,9 @@ class JobSchedulerGetRunsToScheduleTestCase(TestCase):
         self.scheduler = mock.Mock()
         run_collection = mock.Mock(has_pending=False)
         node_pool = mock.Mock()
+        self.config = mock.create_autospec(schema.ConfigJob)
         self.job = job.Job(
-            "jobname",
+            self.config,
             self.scheduler,
             run_collection=run_collection,
             node_pool=node_pool,
@@ -360,8 +369,9 @@ class JobSchedulerManualStartTestCase(testingutils.MockTimeTestCase):
         self.scheduler = mock.Mock()
         run_collection = mock.Mock()
         node_pool = mock.Mock()
+        self.config = mock.create_autospec(schema.ConfigJob)
         self.job = job.Job(
-            "jobname",
+            self.config,
             self.scheduler,
             run_collection=run_collection,
             node_pool=node_pool,
@@ -393,8 +403,9 @@ class JobSchedulerScheduleTestCase(TestCase):
         self.scheduler = mock.Mock()
         run_collection = mock.Mock(has_pending=False)
         node_pool = mock.Mock()
+        self.config = mock.create_autospec(schema.ConfigJob)
         self.job = job.Job(
-            "jobname",
+            self.config,
             self.scheduler,
             run_collection=run_collection,
             node_pool=node_pool,

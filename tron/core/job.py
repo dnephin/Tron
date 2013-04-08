@@ -44,36 +44,27 @@ class Job(Observable, Observer):
 
     # These attributes determine equality between two Job objects
     equality_attrs = [
-        'name',
-        'queueing',
+        'config',
         'scheduler',
         'node_pool',
-        'all_nodes',
         'action_graph',
         'output_path',
         'action_runner',
-        'max_runtime',
     ]
 
-    # TODO: use config object
-    def __init__(self, name, scheduler, queueing=True, all_nodes=False,
-            node_pool=None, enabled=True, action_graph=None,
+    def __init__(self, config, scheduler, node_pool=None, action_graph=None,
             run_collection=None, parent_context=None, output_path=None,
-            allow_overlap=None, action_runner=None, max_runtime=None):
+            action_runner=None):
         super(Job, self).__init__()
-        self.name               = name
+        self.config             = config
+        self.enabled            = config.enabled
         self.action_graph       = action_graph
         self.scheduler          = scheduler
         self.runs               = run_collection
-        self.queueing           = queueing
-        self.all_nodes          = all_nodes
-        self.enabled            = enabled
         self.node_pool          = node_pool
-        self.allow_overlap      = allow_overlap
         self.action_runner      = action_runner
-        self.max_runtime        = max_runtime
         self.output_path        = output_path or filehandler.OutputPath()
-        self.output_path.append(name)
+        self.output_path.append(self.name)
         self.event              = event.get_recorder(self.name)
         self.context = command_context.build_context(self, parent_context)
         self.event.ok('created')
@@ -87,20 +78,22 @@ class Job(Observable, Observer):
         runs         = jobrun.JobRunCollection.from_config(job_config)
         node_repo    = node.NodePoolRepository.get_instance()
 
-        return cls(
-            name                = job_config.name,
-            queueing            = job_config.queueing,
-            all_nodes           = job_config.all_nodes,
+        return cls(job_config,
             node_pool           = node_repo.get_by_name(job_config.node),
             scheduler           = scheduler,
-            enabled             = job_config.enabled,
             run_collection      = runs,
             action_graph        = action_graph,
             parent_context      = parent_context,
             output_path         = output_path,
-            allow_overlap       = job_config.allow_overlap,
-            action_runner       = action_runner,
-            max_runtime         = job_config.max_runtime)
+            action_runner       = action_runner)
+
+    def get_name(self):
+        return self.config.name
+
+    name = property(get_name)
+
+    def get_config(self):
+        return self.config
 
     def update_from_job(self, job):
         """Update this Jobs configuration from a new config. This method
@@ -153,8 +146,7 @@ class Job(Observable, Observer):
         build a run for every node, otherwise just builds a single run on a
         single node.
         """
-        pool = self.node_pool
-        nodes = pool.nodes if self.all_nodes else [pool.next()]
+        nodes = self.node_pool.get_nodes(self.config.all_nodes)
         for node in nodes:
             run = self.runs.build_new_run(self, run_time, node, manual=manual)
             self.watch(run)
@@ -228,6 +220,10 @@ class JobScheduler(Observer):
         """Return True if there are no running or starting runs."""
         return not any(self.job.runs.get_active())
 
+    @property
+    def config(self):
+        return self.job.get_config()
+
     def manual_start(self, run_time=None):
         """Trigger a job run manually (instead of from the scheduler)."""
         run_time = run_time or timeutils.current_time()
@@ -279,9 +275,9 @@ class JobScheduler(Observer):
                     job_run, job_run.state))
             return self.schedule()
 
-        node = job_run.node if self.job.all_nodes else None
+        node = job_run.node if self.config.all_nodes else None
         # If there is another job run still running, queue or cancel this one
-        if not self.job.allow_overlap and any(self.job.runs.get_active(node)):
+        if not self.config.allow_overlap and any(self.job.runs.get_active(node)):
             self._queue_or_cancel_active(job_run)
             return
 
@@ -291,12 +287,12 @@ class JobScheduler(Observer):
             self.schedule()
 
     def schedule_termination(self, job_run):
-        if self.job.max_runtime:
-            seconds = timeutils.delta_total_seconds(self.job.max_runtime)
+        if self.config.max_runtime:
+            seconds = timeutils.delta_total_seconds(self.config.max_runtime)
             eventloop.call_later(seconds, job_run.stop)
 
     def _queue_or_cancel_active(self, job_run):
-        if self.job.queueing:
+        if self.config.queueing:
             log.info("%s still running, queueing %s." % (self.job, job_run))
             return job_run.queue()
 

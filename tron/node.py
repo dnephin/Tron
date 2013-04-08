@@ -159,6 +159,9 @@ class NodePool(object):
             if node.hostname == hostname:
                 return node
 
+    def get_nodes(self, all_nodes=False):
+        return self.nodes if all_nodes else [self.next()]
+
     def __str__(self):
         return "NodePool:%s" % self.name
 
