@@ -246,6 +246,7 @@ class DisplayServices(TableDisplay):
         ('Node Pool',           'node_pool'         ),
         ('Restart interval',    'restart_interval'  ),
         ('Monitor interval',    'monitor_interval'  ),
+        ('Description',         'description'       ),
     ]
 
     colors = {
