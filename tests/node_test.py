@@ -4,6 +4,7 @@ from testify import assert_in, assert_raises
 from testify.assertions import assert_not_in, assert_not_equal
 from testify.test_case import teardown
 
+from tests.testingutils import autospec_method
 from tron import node, ssh
 from tron.core import actionrun
 from tron.serialize import filehandler
@@ -193,6 +194,15 @@ class NodePoolTestCase(TestCase):
             for _ in xrange(len(self.nodes) * 2)
         ]
         assert_equal(node_order, self.nodes + self.nodes)
+
+    def test_get_nodes_all_nodes(self):
+        assert_equal(self.node_pool.get_nodes(all_nodes=True),
+            self.node_pool.nodes)
+
+    def test_get_nodes_single(self):
+        autospec_method(self.node_pool.next)
+        expected = [self.node_pool.next.return_value]
+        assert_equal(self.node_pool.get_nodes(), expected)
 
 
 if __name__ == '__main__':

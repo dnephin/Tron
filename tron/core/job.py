@@ -146,8 +146,7 @@ class Job(Observable, Observer):
         build a run for every node, otherwise just builds a single run on a
         single node.
         """
-        nodes = self.node_pool.get_nodes(self.config.all_nodes)
-        for node in nodes:
+        for node in self.node_pool.get_nodes(self.config.all_nodes):
             run = self.runs.build_new_run(self, run_time, node, manual=manual)
             self.watch(run)
             yield run
@@ -319,17 +318,19 @@ class JobScheduler(Observer):
         self.schedule()
     handler = handle_job_events
 
+    def _get_last_run_time(self, ignore_last_run_time):
+        if ignore_last_run_time:
+            return None
+        last_run = self.job.runs.get_newest(include_manual=False)
+        return last_run.run_time if last_run else None
+
     def get_runs_to_schedule(self, ignore_last_run_time):
         """Build and return the runs to schedule."""
         if self.job.runs.has_pending:
             log.info("%s has pending runs, can't schedule more." % self.job)
             return []
 
-        if ignore_last_run_time:
-            last_run_time = None
-        else:
-            last_run = self.job.runs.get_newest(include_manual=False)
-            last_run_time = last_run.run_time if last_run else None
+        last_run_time = self._get_last_run_time(ignore_last_run_time)
         next_run_time = self.job.scheduler.next_run_time(last_run_time)
         return self.job.build_new_runs(next_run_time)
 
