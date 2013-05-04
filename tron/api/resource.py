@@ -348,7 +348,7 @@ class StatusResource(resource.Resource):
             'pid':            os.getpid(),
             'version':        tron.__version__,
             'uptime':         time.time() - self.start_time,
-            'pending_events': len(eventloop.get_pending())
+            'reactor':        eventloop.get_reactor_stats(),
         }
         return respond(request, response)
 

@@ -148,9 +148,10 @@ class StatusResourceTestCase(WWWTestCase):
     def test_get_children(self):
         assert_equal(set(self.resource.children), set(['version', '']))
 
-    def test_render_GET(self):
+    @mock.patch('tron.api.resource.eventloop')
+    def test_render_GET(self, mock_eventloop):
         response = self.resource.render_GET(build_request())
-        keys = ['uptime', 'version', 'pid', 'host', 'pending_events']
+        keys = ['uptime', 'version', 'pid', 'host', 'reactor']
         assert_equal(set(response), set(keys))
 
 

@@ -25,12 +25,17 @@ def call_later(interval, *args, **kwargs):
     return reactor.callLater(interval, *args, **kwargs)
 
 
+def get_reactor_stats():
+    reactor = get_reactor()
+    return {
+        'pending_timed_calls':  len(reactor._pendingTimedCalls),
+        'threads':              len(reactor.threadpool.threads),
+        'thread_call_queue':    len(reactor.threadCallQueue),
+        'new_timed_calls':      len(reactor._newTimedCalls),
+    }
+
 def get_reactor():
     return reactor
-
-
-def get_pending():
-    return reactor._pendingTimedCalls
 
 
 class UniqueCallback(object):
