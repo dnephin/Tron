@@ -1,27 +1,29 @@
 import os
 import shutil
-import time
 from tempfile import NamedTemporaryFile, mkdtemp
 
+import mock
 from testify import TestCase, run, assert_equal, assert_not_in, assert_in
-from testify import assert_not_equal, turtle
-from testify import setup, teardown, suite
+from testify import assert_not_equal, assert_is
+from testify import setup, teardown, suite, setup_teardown
 
-from tron.serialize.filehandler import FileHandleManager, OutputStreamSerializer
+from tests.testingutils import autospec_method
+from tron.serialize.filehandler import OutputStreamSerializer
 from tron.serialize.filehandler import OutputPath, NullFileHandle
+from tron.serialize import filehandler
+
 
 class FileHandleWrapperTestCase(TestCase):
 
-    @setup
-    def setup_fh_wrapper(self):
-        self.file = NamedTemporaryFile('r')
-        self.manager = FileHandleManager.get_instance()
-        self.fh_wrapper = self.manager.open(self.file.name)
-
-    @teardown
-    def teardown_fh_wrapper(self):
-        self.fh_wrapper.close()
-        FileHandleManager.reset()
+    @setup_teardown
+    def patch_time(self):
+        with mock.patch('tron.serialize.filehandler.time') as self.mock_time:
+            self.mock_time.time.return_value = self.time = 123456789
+            self.file = NamedTemporaryFile('r')
+            self.manager = mock.create_autospec(filehandler.FileHandleManager)
+            self.fh_wrapper = filehandler.FileHandleWrapper(
+                self.manager, self.file.name)
+            yield
 
     def test_init(self):
         assert_equal(self.fh_wrapper._fh, NullFileHandle)
@@ -31,31 +33,29 @@ class FileHandleWrapperTestCase(TestCase):
         self.fh_wrapper.close()
         # Test close again, after already closed
         self.fh_wrapper.close()
+        self.manager.remove.assert_called_with(self.fh_wrapper)
 
     def test_close_with_write(self):
-        # Test close with a write
         self.fh_wrapper.write("some things")
         self.fh_wrapper.close()
         assert_equal(self.fh_wrapper._fh, NullFileHandle)
         assert_equal(self.fh_wrapper.manager, self.manager)
-        # This is somewhat coupled
-        assert_not_in(self.fh_wrapper, self.manager.cache)
+        self.manager.remove.assert_called_with(self.fh_wrapper)
 
     def test_write(self):
         # Test write without a previous open
-        before_time = time.time()
+        self.mock_time.time.return_value = new_time = self.time + 10
         self.fh_wrapper.write("some things")
-        after_time = time.time()
 
         assert self.fh_wrapper._fh
         assert_equal(self.fh_wrapper._fh.closed, False)
-        assert before_time <= self.fh_wrapper.last_accessed <= after_time
+        assert_equal(self.fh_wrapper.last_accessed, new_time)
 
         # Test write after previous open
-        before_time = time.time()
+        self.mock_time.time.return_value = new_time = self.time + 20
         self.fh_wrapper.write("\nmore things")
-        after_time = time.time()
-        assert before_time <= self.fh_wrapper.last_accessed <= after_time
+        assert_equal(self.fh_wrapper.last_accessed, new_time)
+        # TODO: mock writes
         self.fh_wrapper.close()
         with open(self.file.name) as fh:
             assert_equal(fh.read(), "some things\nmore things")
@@ -72,125 +72,88 @@ class FileHandleWrapperTestCase(TestCase):
         with open(self.file.name) as fh:
             assert_equal(fh.read(), "123")
 
+    def test_last_accessed_before_true(self):
+        assert self.fh_wrapper.last_accessed_before(self.time + 2)
+
+    def test_last_accessed_before_false(self):
+        assert not self.fh_wrapper.last_accessed_before(self.time - 2)
+
+
+class FileManagerSingletonTestCase(TestCase):
+
+    def test_single_instance(self):
+        try:
+            insta = filehandler.FileManagerSingleton.get_instance()
+            instb = filehandler.FileManagerSingleton.get_instance()
+            assert_is(insta, instb)
+        finally:
+            filehandler.FileManagerSingleton.reset()
+
 
 class FileHandleManagerTestCase(TestCase):
 
     @setup
     def setup_fh_manager(self):
-        FileHandleManager.reset()
         self.file1 = NamedTemporaryFile('r')
         self.file2 = NamedTemporaryFile('r')
-        FileHandleManager.set_max_idle_time(2)
-        self.manager = FileHandleManager.get_instance()
+        self.wrapper = mock.create_autospec(filehandler.FileHandleWrapper)
+        self.manager = filehandler.FileHandleManager(self.wrapper)
 
-    @teardown
-    def teardown_fh_manager(self):
-        FileHandleManager.reset()
+    def test_open_new(self):
+        self.manager.open(self.file1.name)
+        assert_in(self.file1.name, self.manager.cache)
 
-    def test_get_instance(self):
-        assert_equal(self.manager, FileHandleManager.get_instance())
-        # Repeat for good measure
-        assert_equal(self.manager, FileHandleManager.get_instance())
-
-    def test_set_max_idle_time(self):
-        max_idle_time = 300
-        FileHandleManager.set_max_idle_time(max_idle_time)
-        assert_equal(max_idle_time, self.manager.max_idle_time)
-
-    def test_open(self):
-        # Not yet in cache
+    def test_open_cached(self):
         fh_wrapper = self.manager.open(self.file1.name)
-        assert_in(fh_wrapper.name, self.manager.cache)
-
-        # Should now be in cache
         fh_wrapper2 = self.manager.open(self.file1.name)
-
-        # Same wrapper
-        assert_equal(fh_wrapper, fh_wrapper2)
-
-        # Different wrapper
-        assert_not_equal(fh_wrapper, self.manager.open(self.file2.name))
+        assert_is(fh_wrapper, fh_wrapper2)
 
     def test_cleanup_none(self):
-        # Nothing to remove
         fh_wrapper = self.manager.open(self.file1.name)
+        fh_wrapper.last_accessed_before.return_value = False
         self.manager.cleanup()
-        assert_in(fh_wrapper.name, self.manager.cache)
+        assert not fh_wrapper.close.called
 
     def test_cleanup_single(self):
         fh_wrapper = self.manager.open(self.file1.name)
-        fh_wrapper.last_accessed = 123456
-        time_func = lambda: 123458.1
-        self.manager.cleanup(time_func)
-        assert_not_in(fh_wrapper.name, self.manager.cache)
-        assert_equal(len(self.manager.cache), 0)
+        fh_wrapper.last_accessed_before.return_value = True
+        self.manager.cleanup()
+        fh_wrapper.close.assert_called_with()
 
     def test_cleanup_many(self):
-        fh_wrappers = [
-            self.manager.open(self.file1.name),
-            self.manager.open(self.file2.name),
-            self.manager.open(NamedTemporaryFile('r').name),
-            self.manager.open(NamedTemporaryFile('r').name),
-            self.manager.open(NamedTemporaryFile('r').name),
-        ]
-        for i, fh_wrapper in enumerate(fh_wrappers):
-            fh_wrapper.last_accessed = 123456 + i
+        fh_wrappers = [ mock.MagicMock() for _ in xrange(5) ]
+        for wrapper, ret in zip(fh_wrappers, [True, True, True, False, False]):
+            self.manager.cache[wrapper.name] = wrapper
+            wrapper.last_accessed_before.return_value = ret
 
-        time_func = lambda: 123460.1
-        self.manager.cleanup(time_func)
-        assert_equal(len(self.manager.cache), 2)
-
+        self.manager.cleanup()
         for fh_wrapper in fh_wrappers[:3]:
-            assert_not_in(fh_wrapper.name, self.manager.cache)
+            fh_wrapper.close.assert_called_with()
 
         for fh_wrapper in fh_wrappers[3:]:
-            assert_in(fh_wrapper.name, self.manager.cache)
-
-    def test_cleanup_opened(self):
-        fh_wrapper = self.manager.open(self.file1.name)
-        fh_wrapper.write("Some things")
-
-        fh_wrapper.last_accessed = 123456
-        time_func = lambda: 123458.1
-        self.manager.cleanup(time_func)
-        assert_not_in(fh_wrapper.name, self.manager.cache)
-        assert_equal(len(self.manager.cache), 0)
-
-    def test_cleanup_natural(self):
-        FileHandleManager.set_max_idle_time(1)
-        fh_wrapper1 = self.manager.open(self.file1.name)
-        fh_wrapper2 = self.manager.open(self.file2.name)
-        fh_wrapper1.write("Some things")
-
-        time.sleep(1.5)
-        fh_wrapper2.write("Other things.")
-
-        assert_not_in(fh_wrapper1.name, self.manager.cache)
-        assert_in(fh_wrapper2.name, self.manager.cache)
-
-        # Now that 1 is closed, try writing again
-        fh_wrapper1.write("Some things")
-        assert_in(fh_wrapper1.name, self.manager.cache)
-        assert not fh_wrapper1._fh.closed
+            assert not fh_wrapper.close.called
 
     def test_remove(self):
-        # In cache
-        fh_wrapper = self.manager.open(self.file1.name)
+        fh_wrapper = mock.MagicMock()
+        self.manager.update(fh_wrapper)
         assert_in(fh_wrapper.name, self.manager.cache)
         self.manager.remove(fh_wrapper)
         assert_not_in(fh_wrapper.name, self.manager.cache)
 
-        # Not in cache
+    def test_remove_not_in_cache(self):
+        fh_wrapper = mock.Mock()
         self.manager.remove(fh_wrapper)
         assert_not_in(fh_wrapper.name, self.manager.cache)
 
     def test_update(self):
-        fh_wrapper1 = self.manager.open(self.file1.name)
-        fh_wrapper2 = self.manager.open(self.file2.name)
-        assert_equal(self.manager.cache.keys(), [fh_wrapper1.name, fh_wrapper2.name])
+        autospec_method(self.manager.cleanup)
+        autospec_method(self.manager.remove)
 
-        self.manager.update(fh_wrapper1)
-        assert_equal(self.manager.cache.keys(), [fh_wrapper2.name, fh_wrapper1.name])
+        wrapper = mock.MagicMock()
+        self.manager.update(wrapper)
+        self.manager.cleanup.assert_called_with()
+        self.manager.remove.assert_called_with(wrapper)
+        assert_equal(self.manager.cache[wrapper.name], wrapper)
 
 
 class OutputStreamSerializerTestCase(TestCase):
@@ -283,11 +246,11 @@ class OutputPathTestCase(TestCase):
         assert not os.path.exists(tmp_dir)
 
     def test__eq__(self):
-        other = turtle.Turtle(base='one', parts=['two', 'three'])
+        other = mock.Mock(base='one', parts=['two', 'three'])
         assert_equal(self.path, other)
 
     def test__ne__(self):
-        other = turtle.Turtle(base='one/two', parts=['three'])
+        other = mock.Mock(base='one/two', parts=['three'])
         assert_not_equal(self.path, other)
 
 if __name__ == "__main__":

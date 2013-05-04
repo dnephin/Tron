@@ -26,6 +26,7 @@ class NullFileHandle(object):
         pass
 
 
+# TODO: use observer instead of passing a manager
 class FileHandleWrapper(object):
     """Acts as a proxy to file handles.  Wrap a file handle and stores
     access time and metadata.  These objects should only be created
@@ -61,6 +62,9 @@ class FileHandleWrapper(object):
         self._fh.write(content)
         self.manager.update(self)
 
+    def last_accessed_before(self, threshold_time):
+        return self.last_accessed < threshold_time
+
     def __enter__(self):
         return self
 
@@ -72,43 +76,19 @@ class FileHandleManager(object):
     """Creates FileHandleWrappers, closes handles when they have
     been inactive for a period of time, and transparently re-open the next
     time they are needed. All files are opened in append mode.
-
-    This class is singleton.  An already configured instance can be
-    retrieving by using get_instance() (and will be created if None),
-    max_idle_time can be set by calling the classmethod set_max_idle_time()
     """
 
-    _instance = None
-
-    def __init__(self, max_idle_time=60):
+    def __init__(self, wrapper_class, max_idle_time=60):
+        """ Create a new instance.
+            max_idle_time - max idle time in seconds
         """
-            Create a new instance.
-            max_idle_time           - max idle time in seconds
-        """
-        if self.__class__._instance:
-            msg = "FileHandleManager is a singleton. Call get_instance()"
-            raise ValueError(msg)
+        self.wrapper_class = wrapper_class
         self.max_idle_time = max_idle_time
         self.cache = OrderedDict()
-        self.__class__._instance = self
 
-    @classmethod
-    def set_max_idle_time(cls, max_idle_time):
-        inst = cls.get_instance()
-        inst.max_idle_time = max_idle_time
-
-    @classmethod
-    def get_instance(cls):
-        if cls._instance is None:
-            cls._instance = cls()
-        return cls._instance
-
-    @classmethod
-    def reset(cls):
-        """Empty the cache and reset the instance to it's original state."""
-        inst = cls.get_instance()
-        for fh_wrapper in inst.cache.values():
-            inst.remove(fh_wrapper)
+    def clear(self):
+        for fh_wrapper in self.cache.values():
+            self.remove(fh_wrapper)
 
     def open(self, filename):
         """Retrieve a file handle from the cache based on name.  Returns a
@@ -117,23 +97,21 @@ class FileHandleManager(object):
         """
         if filename in self.cache:
             return self.cache[filename]
-        fhw = FileHandleWrapper(self, filename)
-        self.cache[filename] = fhw
-        return fhw
+        wrapper = self.cache[filename] = self.wrapper_class(self, filename)
+        return wrapper
 
-    def cleanup(self, time_func=time.time):
+    def cleanup(self):
         """Close any file handles that have been idle for longer than
         max_idle_time. time_func is primary used for testing.
         """
         if not self.cache:
             return
 
-        cur_time = time_func()
+        threshold = time.time() - self.max_idle_time
         for name, fh_wrapper in self.cache.items():
-            if cur_time - fh_wrapper.last_accessed > self.max_idle_time:
-                fh_wrapper.close()
-            else:
+            if not fh_wrapper.last_accessed_before(threshold):
                 break
+            fh_wrapper.close()
 
     def remove(self, fh_wrapper):
         """Remove the fh_wrapper from the cache and access_order."""
@@ -148,6 +126,22 @@ class FileHandleManager(object):
         self.remove(fh_wrapper)
         self.cache[fh_wrapper.name] = fh_wrapper
         self.cleanup()
+
+
+class FileManagerSingleton(object):
+
+    @classmethod
+    def get_instance(cls):
+        manager = FileHandleManager(FileHandleWrapper)
+        cls.get_instance = classmethod(lambda cls: manager)
+        return manager
+
+    orig_get_instance = get_instance
+
+    @classmethod
+    def reset(cls):
+        cls.get_instance().clear()
+        cls.get_instance = cls.orig_get_instance
 
 
 class OutputStreamSerializer(object):
@@ -179,9 +173,9 @@ class OutputStreamSerializer(object):
             return []
 
     def open(self, filename):
-        """Return a FileHandleManager for the output path."""
+        """Return a FileHandleWrapper for the output path."""
         path = self.full_path(filename)
-        return FileHandleManager.get_instance().open(path)
+        return FileManagerSingleton.get_instance().open(path)
 
 
 class OutputPath(object):
