@@ -5,7 +5,7 @@ sqlalchemystore = None # pyflakes
 
 
 class SQLAlchmeyStateStoreTestCase(TestCase):
-    _suites = ['sqlalchemy']
+    _suites = ['sqlalchemy', 'integration']
 
     @setup
     def setup_store(self):

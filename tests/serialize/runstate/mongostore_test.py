@@ -5,7 +5,7 @@ mongostore = None # pyflakes
 
 
 class MongoStateStoreTestCase(TestCase):
-    _suites = ['mongodb']
+    _suites = ['mongodb', 'integration']
 
     store = None
 

@@ -7,6 +7,7 @@ from tron.serialize.runstate.shelvestore import ShelveStateStore, ShelveKey
 
 
 class ShelveStateStoreTestCase(TestCase):
+    _suites = ['integration']
 
     @setup
     def setup_store(self):
