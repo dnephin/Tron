@@ -86,7 +86,7 @@ class Client(object):
         self.url_base = url_base
 
     def status(self):
-        return self.http_get('/api/status')
+        return self.http_get('/status')
 
     def events(self):
         return self.http_get('/api/events')['data']

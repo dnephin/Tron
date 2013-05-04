@@ -14,7 +14,7 @@ from twisted.web import http
 from tests.assertions import assert_call
 from tron import event, node
 from tron import mcp
-from tron.api import resource as www, controller
+from tron.api import resource, controller
 from tests.testingutils import Turtle, autospec_method
 from tron.core import service, serviceinstance, job, jobrun
 
@@ -29,11 +29,12 @@ def build_request(**kwargs):
 
 
 class WWWTestCase(TestCase):
-    """Patch www.response to not json encode."""
+    """Patch resource.response to not json encode."""
 
     @setup_teardown
     def mock_respond(self):
-        with mock.patch('tron.api.resource.respond', autospec=True) as self.respond:
+        with mock.patch('tron.api.resource.respond',
+                        autospec=True) as self.respond:
             self.respond.side_effect = lambda _req, output, code=None: output
             yield
 
@@ -55,7 +56,7 @@ class HandleCommandTestCase(TestCase):
         mock_controller, obj = mock.Mock(), mock.Mock()
         error = controller.UnknownCommandError("No")
         mock_controller.handle_command.side_effect = error
-        response = www.handle_command(request, mock_controller, obj)
+        response = resource.handle_command(request, mock_controller, obj)
         mock_controller.handle_command.assert_called_with(command)
         assert_equal(response, self.respond.return_value)
         self.respond.assert_called_with(request, {'error': str(error)},
@@ -65,7 +66,7 @@ class HandleCommandTestCase(TestCase):
         command = 'the command'
         request = build_request(command=command)
         mock_controller, obj = mock.Mock(), mock.Mock()
-        response = www.handle_command(request, mock_controller, obj)
+        response = resource.handle_command(request, mock_controller, obj)
         mock_controller.handle_command.assert_called_with(command)
         assert_equal(response, self.respond.return_value)
         self.respond.assert_called_with(request,
@@ -78,7 +79,7 @@ class ActionRunResourceTestCase(WWWTestCase):
     def setup_resource(self):
         self.job_run = mock.MagicMock()
         self.action_run = mock.MagicMock(output_path=['one'])
-        self.resource = www.ActionRunResource(self.action_run, self.job_run)
+        self.resource = resource.ActionRunResource(self.action_run, self.job_run)
 
     def test_render_GET(self):
         request = build_request(num_lines="12")
@@ -92,7 +93,7 @@ class JobrunResourceTestCase(WWWTestCase):
     def setup_resource(self):
         self.job_run = mock.MagicMock()
         self.job_scheduler = mock.Mock()
-        self.resource = www.JobRunResource(self.job_run, self.job_scheduler)
+        self.resource = resource.JobRunResource(self.job_run, self.job_scheduler)
 
     def test_render_GET(self):
         response = self.resource.render_GET(self.request)
@@ -104,10 +105,10 @@ class ApiRootResourceTestCase(WWWTestCase):
     @setup
     def build_resource(self):
         self.mcp = mock.create_autospec(mcp.MasterControlProgram)
-        self.resource = www.ApiRootResource(self.mcp)
+        self.resource = resource.ApiRootResource(self.mcp)
 
     def test__init__(self):
-        expected_children = ['jobs', 'services', 'config', 'status', 'events', '']
+        expected_children = ['jobs', 'services', 'config', 'events', '']
         assert_equal(set(expected_children), set(self.resource.children))
 
     def test_render_GET(self):
@@ -124,7 +125,7 @@ class RootResourceTestCase(WWWTestCase):
     def build_resource(self):
         self.web_path = '/bogus/path'
         self.mcp = mock.create_autospec(mcp.MasterControlProgram)
-        self.resource = www.RootResource(self.mcp, self.web_path)
+        self.resource = resource.RootResource(self.mcp, self.web_path)
 
     def test_render_GET(self):
         request = build_request()
@@ -134,7 +135,23 @@ class RootResourceTestCase(WWWTestCase):
         request.finish.assert_called_with()
 
     def test_get_children(self):
-        assert_equal(set(self.resource.children), set(['api', 'web', '']))
+        assert_equal(set(self.resource.children), set(['status', 'api', 'web', '']))
+
+
+class StatusResourceTestCase(WWWTestCase):
+
+    @setup
+    def build_resource(self):
+        self.mcp = mock.create_autospec(mcp.MasterControlProgram)
+        self.resource = resource.StatusResource(self.mcp)
+
+    def test_get_children(self):
+        assert_equal(set(self.resource.children), set(['version', '']))
+
+    def test_render_GET(self):
+        response = self.resource.render_GET(build_request())
+        keys = ['uptime', 'version', 'pid', 'host', 'pending_events']
+        assert_equal(set(response), set(keys))
 
 
 class ActionRunHistoryResourceTestCase(WWWTestCase):
@@ -142,7 +159,7 @@ class ActionRunHistoryResourceTestCase(WWWTestCase):
     @setup
     def setup_resource(self):
         self.action_runs = [mock.MagicMock(), mock.MagicMock()]
-        self.resource = www.ActionRunHistoryResource(self.action_runs)
+        self.resource = resource.ActionRunHistoryResource(self.action_runs)
 
     def test_render_GET(self):
         response = self.resource.render_GET(self.request)
@@ -162,7 +179,7 @@ class JobCollectionResourceTestCase(WWWTestCase):
             node_pool=mocks.MockNodePool()
         )
         self.job_collection = mock.create_autospec(job.JobCollection)
-        self.resource = www.JobCollectionResource(self.job_collection)
+        self.resource = resource.JobCollectionResource(self.job_collection)
 
     def test_render_GET(self):
         self.resource.get_data = Turtle()
@@ -172,7 +189,7 @@ class JobCollectionResourceTestCase(WWWTestCase):
 
     def test_getChild(self):
         child = self.resource.getChild("testname", mock.Mock())
-        assert isinstance(child, www.JobResource)
+        assert isinstance(child, resource.JobResource)
         self.job_collection.get_by_name.assert_called_with("testname")
 
     def test_getChild_missing_job(self):
@@ -198,7 +215,7 @@ class JobResourceTestCase(WWWTestCase):
             max_runtime=mock.Mock())
         self.job_scheduler.get_job.return_value = self.job
         self.job_scheduler.get_job_runs.return_value = self.job_runs
-        self.resource = www.JobResource(self.job_scheduler)
+        self.resource = resource.JobResource(self.job_scheduler)
 
     def test_render_GET(self):
         result = self.resource.render_GET(self.request)
@@ -238,9 +255,9 @@ class JobResourceTestCase(WWWTestCase):
         action_runs = [mock.Mock(), mock.Mock()]
         self.job.action_graph.names = [action_name]
         self.job.runs.get_action_runs.return_value = action_runs
-        resource = self.resource.getChild(action_name, None)
-        assert_equal(resource.__class__, www.ActionRunHistoryResource)
-        assert_equal(resource.action_runs, action_runs)
+        child_resource = self.resource.getChild(action_name, None)
+        assert_equal(child_resource.__class__, resource.ActionRunHistoryResource)
+        assert_equal(child_resource.action_runs, action_runs)
 
 
 class ServiceResourceTestCase(WWWTestCase):
@@ -254,14 +271,14 @@ class ServiceResourceTestCase(WWWTestCase):
             instances=instances,
             enabled=True,
             config=mock.Mock())
-        self.resource = www.ServiceResource(self.service)
+        self.resource = resource.ServiceResource(self.service)
         self.resource.controller = mock.create_autospec(
             controller.ServiceController)
 
     def test_getChild(self):
         number = '3'
-        resource = self.resource.getChild(number, None)
-        assert isinstance(resource, www.ServiceInstanceResource)
+        child_resource = self.resource.getChild(number, None)
+        assert isinstance(child_resource, resource.ServiceInstanceResource)
         self.service.instances.get_by_number.assert_called_with(3)
 
     def test_render_GET(self):
@@ -279,13 +296,13 @@ class ServiceCollectionResourceTestCase(TestCase):
     @setup
     def build_resource(self):
         self.mcp = mock.create_autospec(mcp.MasterControlProgram)
-        self.resource = www.ServiceCollectionResource(self.mcp)
+        self.resource = resource.ServiceCollectionResource(self.mcp)
         self.resource.collection = mock.create_autospec(service.ServiceCollection)
 
     def test_getChild(self):
         child = self.resource.collection.get_by_name.return_value = mock.Mock()
         child_resource = self.resource.getChild('name', None)
-        assert isinstance(child_resource, www.ServiceResource)
+        assert isinstance(child_resource, resource.ServiceResource)
         assert_equal(child_resource.service, child)
 
     def test_getChild_missing(self):
@@ -308,7 +325,7 @@ class EventResourceTestCase(WWWTestCase):
     @setup
     def setup_resource(self):
         self.name       = 'the_name'
-        self.resource   = www.EventResource(self.name)
+        self.resource   = resource.EventResource(self.name)
 
     @teardown
     def teardown_resource(self):
@@ -329,7 +346,7 @@ class ConfigResourceTestCase(TestCase):
     @setup_teardown
     def setup_resource(self):
         self.mcp = mock.create_autospec(mcp.MasterControlProgram)
-        self.resource = www.ConfigResource(self.mcp)
+        self.resource = resource.ConfigResource(self.mcp)
         self.controller = self.resource.controller = mock.create_autospec(
             controller.ConfigController)
         with mock.patch('tron.api.resource.respond', autospec=True) as self.respond:

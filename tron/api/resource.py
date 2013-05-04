@@ -5,6 +5,9 @@ view current state, event history and send commands to trond.
 
 import datetime
 import logging
+import os
+import socket
+import time
 
 try:
     import simplejson as json
@@ -14,7 +17,8 @@ except ImportError:
 
 from twisted.web import http, resource, static, server
 
-from tron import event
+import tron
+from tron import event, eventloop
 from tron.api import adapter, controller
 from tron.api import requestargs
 
@@ -330,14 +334,31 @@ class ConfigResource(resource.Resource):
 
 class StatusResource(resource.Resource):
 
-    isLeaf = True
+    start_time = time.time()
 
-    def __init__(self, master_control):
-        self._master_control = master_control
+    def __init__(self, mcp):
         resource.Resource.__init__(self)
+        self.mcp = mcp
+        self.putChild('version', VersionResource())
+        self.putChild('', self)
 
     def render_GET(self, request):
-        return respond(request, {'status': "I'm alive."})
+        response = {
+            'host':           socket.gethostname(),
+            'pid':            os.getpid(),
+            'version':        tron.__version__,
+            'uptime':         time.time() - self.start_time,
+            'pending_events': len(eventloop.get_pending())
+        }
+        return respond(request, response)
+
+
+class VersionResource(resource.Resource):
+
+    ifLeaf = True
+
+    def render_GET(self, _):
+        return tron.__version__
 
 
 class EventResource(resource.Resource):
@@ -366,7 +387,6 @@ class ApiRootResource(resource.Resource):
         self.putChild('services',
             ServiceCollectionResource(mcp.get_service_collection()))
         self.putChild('config',   ConfigResource(mcp))
-        self.putChild('status',   StatusResource(mcp))
         self.putChild('events',   EventResource(''))
         self.putChild('', self)
 
@@ -386,8 +406,9 @@ class RootResource(resource.Resource):
         resource.Resource.__init__(self)
         self.web_path = web_path
         self.mcp = mcp
-        self.putChild('api', ApiRootResource(self.mcp))
-        self.putChild('web', static.File(web_path))
+        self.putChild('api',    ApiRootResource(self.mcp))
+        self.putChild('web',    static.File(web_path))
+        self.putChild('status', StatusResource(mcp))
         self.putChild('', self)
 
     def render_GET(self, request):
