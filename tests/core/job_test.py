@@ -23,7 +23,7 @@ class JobTestCase(TestCase):
         run_collection = Turtle()
         self.nodes = mock.create_autospec(node.NodePool)
         self.action_runner = mock.create_autospec(
-            actioncommand.SimpleActionRunnerFactory)
+            actioncommand.SubprocessActionRunnerFactory)
 
         self.config = mock.create_autospec(schema.ConfigJob)
         patcher = mock.patch('tron.core.job.node.NodePoolRepository')
@@ -491,7 +491,7 @@ class JobSchedulerFactoryTestCase(TestCase):
         self.output_stream_dir = mock.Mock()
         self.time_zone = mock.Mock()
         self.action_runner = mock.create_autospec(
-            actioncommand.SimpleActionRunnerFactory)
+            actioncommand.SubprocessActionRunnerFactory)
         self.factory = job.JobSchedulerFactory(
             self.context, self.output_stream_dir, self.time_zone, self.action_runner)
 

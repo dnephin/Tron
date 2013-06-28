@@ -39,7 +39,7 @@ class ActionRunFactoryTestCase(TestCase):
             'command':          'do action1',
             'node_name':        'anode'
         }
-        self.action_runner = mock.create_autospec(actioncommand.SimpleActionRunnerFactory)
+        self.action_runner = mock.create_autospec(actioncommand.SubprocessActionRunnerFactory)
 
     def test_build_action_run_collection(self):
         collection = ActionRunFactory.build_action_run_collection(
@@ -356,8 +356,7 @@ class ActionRunStateRestoreTestCase(testingutils.MockTimeTestCase):
         self.state_data['state'] = 'queued'
         action_run = ActionRun.from_state(self.state_data, self.parent_context,
                 self.output_path, self.run_node)
-        assert action_run.is_failed
-        assert_equal(action_run.end_time, self.now)
+        assert action_run.is_queued
 
     def test_from_state_no_node_name(self):
         del self.state_data['node_name']

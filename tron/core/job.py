@@ -32,10 +32,10 @@ class Job(Observable, Observer):
     actions and their dependency graph.
     """
 
-    STATUS_DISABLED         = "DISABLED"
-    STATUS_ENABLED          = "ENABLED"
-    STATUS_UNKNOWN          = "UNKNOWN"
-    STATUS_RUNNING          = "RUNNING"
+    STATUS_DISABLED         = "disabled"
+    STATUS_ENABLED          = "enabled"
+    STATUS_UNKNOWN          = "unknown"
+    STATUS_RUNNING          = "running"
 
     NOTIFY_STATE_CHANGE     = 'notify_state_change'
     NOTIFY_RUN_DONE         = 'notify_run_done'
@@ -43,13 +43,17 @@ class Job(Observable, Observer):
     context_class           = command_context.JobContext
 
     # These attributes determine equality between two Job objects
-    equality_attrs = [
+    equality_attributes = [
         'config',
+        'name',
+        'queueing',
         'scheduler',
         'node_pool',
         'action_graph',
         'output_path',
         'action_runner',
+        'max_runtime',
+        'allow_overlap',
     ]
 
     def __init__(self, config, scheduler, node_pool=None, action_graph=None,
@@ -100,7 +104,7 @@ class Job(Observable, Observer):
         actually takes an already constructed job and copies out its
         configuration data.
         """
-        for attr in self.equality_attrs:
+        for attr in self.equality_attributes:
             setattr(self, attr, getattr(job, attr))
         self.event.ok('reconfigured')
 
@@ -118,6 +122,9 @@ class Job(Observable, Observer):
 
         log.warn("%s in an unknown state: %s" % (self, self.runs))
         return self.STATUS_UNKNOWN
+
+    def get_runs(self):
+        return self.runs
 
     @property
     def state_data(self):
@@ -169,7 +176,7 @@ class Job(Observable, Observer):
 
     def __eq__(self, other):
         return all(getattr(other, attr, None) == getattr(self, attr, None)
-                   for attr in self.equality_attrs)
+                   for attr in self.equality_attributes)
 
     def __ne__(self, other):
         return not self == other
@@ -345,6 +352,9 @@ class JobScheduler(Observer):
     def get_job(self):
         return self.job
 
+    def get_job_runs(self):
+        return self.job.runs
+
     def __eq__(self, other):
         return bool(other and self.get_job() == other.get_job())
 
@@ -415,6 +425,12 @@ class JobCollection(object):
 
     def get_names(self):
         return self.jobs.keys()
+
+    def get_jobs(self):
+        return [sched.get_job() for sched in self]
+
+    def get_job_run_collections(self):
+        return [sched.get_job_runs() for sched in self]
 
     def __iter__(self):
         return self.jobs.itervalues()

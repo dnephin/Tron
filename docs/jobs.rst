@@ -71,6 +71,9 @@ Optional Fields
     If the job run is still running after this duration, all of it's actions
     are sent SIGTERM.
 
+    Note: This requires an :ref:`action_runners` to be configured. If
+    `action_runner` is none max_runtime does nothing.
+
 
 .. _job_actions:
 
@@ -154,6 +157,12 @@ Long form::
         type:   "interval"
         value:  "5 mins"
         jitter: "10 seconds"        # Optional
+
+With alias::
+
+    schedule:
+        type:   "interval"
+        value:  "hourly"
 
 Daily
 ^^^^^
