@@ -118,7 +118,9 @@ class JobContextTestCase(TestCase):
         mock_scheduler = mock.create_autospec(scheduler.ConstantScheduler)
         run_collection = mock.create_autospec(JobRunCollection,
                         last_success=self.last_success)
-        self.job = job.Job("jobname", mock_scheduler, run_collection=run_collection)
+        self.config = mock.Mock()
+        self.job = job.Job(self.config,
+            mock_scheduler, run_collection=run_collection)
         self.context = command_context.JobContext(self.job)
 
     def test_name(self):

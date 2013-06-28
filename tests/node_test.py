@@ -235,6 +235,15 @@ class NodePoolTestCase(TestCase):
         ]
         assert_equal(node_order, self.nodes + self.nodes)
 
+    def test_get_nodes_all_nodes(self):
+        assert_equal(self.node_pool.get_nodes(all_nodes=True),
+            self.node_pool.nodes)
+
+    def test_get_nodes_single(self):
+        autospec_method(self.node_pool.next)
+        expected = [self.node_pool.next.return_value]
+        assert_equal(self.node_pool.get_nodes(), expected)
+
 
 if __name__ == '__main__':
     run()
