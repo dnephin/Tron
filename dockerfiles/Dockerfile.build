@@ -1,0 +1,9 @@
+
+FROM    alpine:3.4
+
+RUN     apk -U add python py-virtualenv bash \
+            gcc python-dev g++ make libffi-dev openssl-dev
+
+WORKDIR /code
+ENV     PS1="# "
+ENV     USER=user

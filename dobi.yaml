@@ -1,0 +1,30 @@
+
+meta:
+    project: tron
+
+mount=source:
+    bind: .
+    path: /code
+
+image=builder:
+    image: tron-dev
+    context: dockerfiles/
+    dockerfile: Dockerfile.build
+
+run=venv:
+    use: builder
+    mounts: [source]
+    command: "bash -c 'virtualenv venv; venv/bin/pip install .'"
+    artifact: "venv/"
+
+run=test:
+    use: builder
+    mounts: [source]
+    command: "venv/bin/testify tests -x sandbox -x mongodb"
+    depends: [venv]
+
+run=shell:
+    use: builder
+    mounts: [source]
+    command: bash
+    interactive: true
